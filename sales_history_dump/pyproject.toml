@@ -1,0 +1,19 @@
+[project]
+name = "sales-history-etl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.4.4",
+    "pathlib>=1.0.1",
+    "pyyaml>=6.0.3",
+    "rich>=14.3.2",
+    "typer>=0.23.1",
+]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+sales_history_dump = "sales_history_dump.cli:app"

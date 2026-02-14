@@ -1,0 +1,1 @@
+a collection of exported sales history from lightspeed for Winona Wine. './raw' is the dir containing the dump, './sales_history_dump' is a CLI app for moving the exported files into the dir (or any other dir) and inserting into a database
