@@ -8,6 +8,7 @@ Use the command line interfaace from within the dir `uv run sales_history_dump` 
 
 - [ ] separate file movement form insertion logic
 - [ ] modify data insertion to append rather than create new table each time.
+- [ ] add latest transaction date metric to output
 
 ## Development
 
