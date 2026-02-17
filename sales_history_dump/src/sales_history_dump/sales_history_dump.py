@@ -36,7 +36,7 @@ def display_latest_data_date(conn):
 
     latest_date = result.fetchone()[0].strftime("%b %d, %Y")
     text = Text()
-    text.append("latest transaction date: ")
+    text.append("earliest transaction date: ")
     text.append(latest_date, style="bold magenta")
     print(text)
 
@@ -57,21 +57,26 @@ def move_sales_data(source_path, destination_path):
 
 
 def insert_sales_data(conn, dir_path):
-    query = f"""
+    query = f"""--sql
     /* use duckdb to connect to the postgres db and perform a read csv over all files in the dir */
     -- use postgres db as default
     use sales_dump_pg
     ;
 
     -- create a table and insert all the data from the csv files in raw/
-    create or replace table raw_sales_history as select now() as append_dt, *
-    from read_csv('{dir_path}', normalize_names = true, filename = true)
+    create or replace table raw_sale_history as 
+    select
+        row_number() over () as insert_idx,
+        now() as append_dt, 
+        *
+    from 
+        read_csv('{dir_path}', normalize_names = true, filename = true)
     ;
 
-    create or replace table latest_date as select min(date) as date from raw_sales_history;
+    create or replace table latest_date as select min(date) as date from raw_sale_history;
     -- display resulting table.
     select *
-    from raw_sales_history
+    from raw_sale_history
     ;
     """
 
