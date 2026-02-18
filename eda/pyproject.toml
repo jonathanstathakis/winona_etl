@@ -1,0 +1,13 @@
+[project]
+name = "eda"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "connectorx>=0.4.5",
+    "duckdb>=1.4.4",
+    "marimo[sql]>=0.19.11",
+    "polars>=1.38.1",
+    "pyarrow>=23.0.0",
+]
