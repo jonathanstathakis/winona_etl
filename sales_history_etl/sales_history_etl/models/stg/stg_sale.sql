@@ -1,7 +1,6 @@
 WITH raw_sale AS (
     SELECT
         -- all other columns are null for line_type = 'Sale'
-        append_dt,
         DATE,
         receipt_number,
         line_type,
@@ -19,8 +18,7 @@ WITH raw_sale AS (
         _user,
         status,
         state,
-        attributes,
-        filename
+        attributes
     FROM
         {{ ref("raw_sale_history_dump") }}
     WHERE
