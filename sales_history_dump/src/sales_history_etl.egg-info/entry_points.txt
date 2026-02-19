@@ -1,2 +1,0 @@
-[console_scripts]
-sales_history_dump = sales_history_dump.cli:app

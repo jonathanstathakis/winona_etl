@@ -84,21 +84,3 @@ def insert_sales_data(conn, dir_path):
     conn.execute(query)
     print("query executed successfully.")
 
-
-def sales_history_dump(
-    dbname: str,
-    user: str,
-    source_path: str,
-    destination_path: str,
-    host: str = "localhost",
-    password: str = "",
-    conn_str: str = "",
-):
-    if not conn_str:
-        conn_str = f"dbname={dbname} user={user} password={password} host={host}"
-
-    move_sales_data(source_path=source_path, destination_path=destination_path)
-    with db.connect() as conn:
-        attach_target_db(conn, conn_str)
-        insert_sales_data(conn, dir_path=destination_path)
-        display_latest_data_date(conn)

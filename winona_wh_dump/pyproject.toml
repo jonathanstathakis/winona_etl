@@ -1,11 +1,12 @@
 [project]
-name = "sales-history-etl"
+name = "winona_wh_dump"
 version = "0.1.0"
-description = "Add your description here"
+description = "CLI tool to automate storage of downloaded export data from lightspeed."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.4.4",
+    "pandas>=3.0.1",
     "pathlib>=1.0.1",
     "pyyaml>=6.0.3",
     "rich>=14.3.2",
@@ -16,4 +17,4 @@ dependencies = [
 package = true
 
 [project.scripts]
-sales_history_dump = "sales_history_dump.cli:app"
+winona_wh_dump = "winona_wh_dump.cli:app"

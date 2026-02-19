@@ -9,12 +9,11 @@ Outcomes:
 
 ## TODO
 
-- [ ] normalise:
-  - [ ] normalise raw_sale
-  - [ ] normalise raw_sale_line
-  - [ ] normalise raw_payment.
-  - [ ] add tests to stg tables.
-- [ ] identify some useful marts
+- [x] normalise:
+  - [x] normalise raw_sale
+  - [x] normalise raw_sale_line
+  - [x] normalise raw_payment.
+- [x] identify some useful marts
 
 ## Normalising
 
@@ -36,34 +35,16 @@ Nope. That's not going to work. details are different between line types..
 
 ### Forming a unique id
 
-soooooo. receipt number, register, user should provide a unique id when excluding duplicates across files.
+Lightspeed does not provide a unique sale id, and presumably due to internal errors, receipt number is sometimes duplicated. We have generated a surrogate key from the hash of the date, details, and receipt_number fields.
 
-The mystery continues.. some lines can have the same date, receipt_number, user, while being different transactions. The key discriminant is the payment time. Wonder how that would work for split payments..
+## Useful Marts
 
-Confirmed. Sometimes the receipt number didnt increment so the final identifier is the payment time which is unique
+What kind of marts would be useful? This will be an evolving question.Probably can't answer that right now. We could start with data health.
 
-Except its not. There are multiple instances of simultaneously recorded payments for the same receipt_number.
+## Next Steps
 
-I dont know what to do now, it should have been simple to deduplicate. We're gna have to form transaction_file_id based on the local ordered appearance of transactions based on the individual blocks then compare the Sale details lines of the blocks to deduplicate, selecting the first of any grouping.
+Integrate inventory data in so we can start looking at categories, pricing and COG.
 
-Best confirm that's the best approach. Probably gna be a pandas job or something like that. Postgres doesnt support ffill/backfill.
+## Integrating Inventory
 
-Will need to add a export_row_order column and the transaction id idx.
-
-adding the file_transaction_id has been fine but it still doesnt solve the problem of absolute id. maybe we get a sales table transaction id and join back.
-
-Also could possibly write a window function. The transactoin id needs to be in the initial read though or the order is lost. unless we add a row number$$
-
-### A way forward
-
-Have shown that date, details and receipt number are sufficient to form unique sale ids. Now to execute in dbt models. First create the id and drop the duplicates then break out into separate tables.
-
-### Procedure
-
-1. number rows by insert order
-2. generate rowwise_sale_id based on the sales mask based cumsum based on insert order
-3. generate the sale id from the hashed combination of date, details and receipt number
-4. join sale_id on the rowwise_sale_id
-5. select distinct sale_id, line_type.
-
-Numbering rows by insert order is the problem. Will have to be done in the CLI app.
+Should probably do it the same way the sales history is run. Difference with the sales history is that we want to record the export date because this will provide us with snapshots. Best to store the export date in the semi-processed file - each row gets an export date.
