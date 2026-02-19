@@ -1,3 +1,5 @@
+from pathlib import Path
+import pandas as pd
 import typer
 import duckdb as db
 from typing import Annotated
@@ -31,40 +33,25 @@ def sale_history(
         display_latest_data_date(conn)
 
 
-def move_product_export(source_path, destination_path, delete_source: bool = False):
-    from pathlib import Path
-
+def get_creation_time(source_path):
     # ctime = Path(source_path).stat()["st_ctime"]
     ctime = Path(source_path).stat()[9]
-    import pandas as pd
-
-    print(f"reading file at {source_path}..")
-    df = pd.read_csv(source_path)
-    print("adding the expore timestamp to rows..")
-    df["export_timestamp"] = ctime
-    outpath = Path(destination_path) / f"product-export-{ctime}.csv"
-    print(f"writing table to {outpath}..")
-
-    if not outpath.parent.exists():
-        outpath.parent.mkdir()
-    df.to_csv(outpath, index=False)
-
-    if delete_source:
-        print("deleting source file..")
-
-        Path(source_path).unlink()
-    print("finished.")
-
-    return outpath
+    return ctime
 
 
 def create_product_export_stg(filepath, conn):
     """
     ingest the current csv file into a staging table
     """
+    print(f"reading file at {filepath}..")
+    df = pd.read_csv(filepath)
+    print("adding the export timestamp to rows..")
+    ctime = get_creation_time(filepath)
+    df["export_timestamp"] = ctime
+
     print(f"reading {filepath} into stg table..")
-    query = f"""
-    create or replace temp table product_export_stg as select * from read_csv('{filepath}',sample_size=10000);
+    query = """
+    create or replace table product_export_stg as select * from df;
     """
 
     conn.execute(query)
@@ -135,7 +122,7 @@ def insert_into_product_export_dump(conn):
     insert into product_export_dump
     with pk_hash as (
         select
-        hash(id::varchar, export_timestamp::varchar) as pk,
+        hash(id::varchar, export_timestamp::varchar, composite_sku::varchar) as pk, -- include composite sku to compensate for repeated ids in composite item rows.
         *
         from
         product_export_stg)
@@ -148,6 +135,7 @@ def insert_into_product_export_dump(conn):
         f"before insert, count={conn.execute('select count(*) from product_export_dump').fetchall()}"
     )
     print("inserting new file into product_export_dump..")
+
     conn.execute(query)
     print(
         f"new count={conn.execute('select count(*) from product_export_dump').fetchall()}"
@@ -164,13 +152,14 @@ def ingest_product_export(filepath, conn_str):
     create_product_export_dump(conn)
     insert_into_product_export_dump(conn)
 
+    # cleanup
+
 
 @app.command()
 def product_export(
     dbname: Annotated[str, typer.Option()],
     user: Annotated[str, typer.Option()],
     source_path: Annotated[str, typer.Option()],
-    destination_dir_path: Annotated[str, typer.Option()],
     host: Annotated[str, typer.Option()] = "localhost",
     password: Annotated[str, typer.Option()] = "",
     conn_str: Annotated[str, typer.Option()] = "",
@@ -179,11 +168,7 @@ def product_export(
     ] = False,
 ):
     """
-    2 actions:
-
-    1. Takes a single product-export.csv file `--source-path`, makes a copy within `--destination-dir-path`, recording the file creation date within the new csv file, and optionally deleting the original file `--delete_source`.
-
-    2. ingest the csv into `product_export_dump`. As opposed to the current functioning of `sale_history_dump` this dump has a primary key based on the hash of the product id
+    ingest the csv into `product_export_dump`. As opposed to the current functioning of `sale_history_dump` this dump has a primary key based on the hash of the product id
     and export timestamp.
 
     It should be noted that this command differs from sale_history in that sale_history globs all files matching the pattern wheras this one needs to be pointed to single files,
@@ -192,11 +177,11 @@ def product_export(
     if not conn_str:
         conn_str = f"dbname={dbname} user={user} password={password} host={host}"
 
-    new_file = move_product_export(
-        source_path, destination_dir_path, delete_source=delete_source
-    )
+    ingest_product_export(filepath=source_path, conn_str=conn_str)
+    if delete_source:
+        print("deleting source file..")
 
-    ingest_product_export(filepath=new_file, conn_str=conn_str)
+        Path(source_path).unlink()
 
 
 if __name__ == "__main__":
