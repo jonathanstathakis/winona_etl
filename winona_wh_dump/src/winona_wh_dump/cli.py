@@ -3,38 +3,12 @@ import pandas as pd
 import typer
 import duckdb as db
 from typing import Annotated
-from .sales_history_dump import (
-    display_latest_data_date,
-    move_sales_data,
-    insert_sales_data,
-)
 from .db_utils import attach_target_db, generate_connection
 
 app = typer.Typer()
 
 
-@app.command()
-def sale_history(
-    dbname: Annotated[str, typer.Option()],
-    user: Annotated[str, typer.Option()],
-    source_path: Annotated[str, typer.Option()],
-    destination_path: Annotated[str, typer.Option()],
-    host: Annotated[str, typer.Option()] = "localhost",
-    password: Annotated[str, typer.Option()] = "",
-    conn_str: Annotated[str, typer.Option()] = "",
-):
-    if not conn_str:
-        conn_str = f"dbname={dbname} user={user} password={password} host={host}"
-
-    move_sales_data(source_path=source_path, destination_path=destination_path)
-    with db.connect() as conn:
-        attach_target_db(conn, conn_str)
-        insert_sales_data(conn, dir_path=destination_path)
-        display_latest_data_date(conn)
-
-
 def get_creation_time(source_path):
-    # ctime = Path(source_path).stat()["st_ctime"]
     ctime = Path(source_path).stat()[9]
     return ctime
 
@@ -142,6 +116,114 @@ def insert_into_product_export_dump(conn):
     )
 
 
+def create_raw_sale_history(filepath, conn, outlet: str):
+    print(f"reading file at {filepath}..")
+    print("adding the export timestamp to rows..")
+    ctime = get_creation_time(filepath)
+
+    print(f"reading {filepath} into staging table..")
+    query = f"""
+    create or replace table cli.raw_sale_history as select
+    {ctime} as export_timestamp,
+    '{outlet}' as outlet,
+    hash(row_number() over (), receipt_number, details, date, outlet, line_type) as sale_history_line_id,
+    *
+    from read_csv('{filepath}', normalize_names=true);
+    """
+    conn.execute(query)
+
+
+def create_sale_history_dump(conn):
+    """
+    creates the product export dump table if it doesnt exist
+    """
+
+    query = """
+CREATE TABLE if NOT EXISTS cli.sale_history_dump (
+    sale_history_line_id varchar primary key,
+    export_timestamp bigint,
+    outlet varchar,
+    date timestamp,
+    receipt_number varchar,
+    line_type varchar,
+    customer_code varchar,
+    customer_name varchar,
+    note varchar,
+    quantity double,
+    subtotal double,
+    sales_tax double,
+    discount double,
+    loyalty double,
+    total double,
+    paid double,
+    details varchar,
+    register varchar,
+    user varchar,
+    status varchar,
+    sku varchar,
+    accountcodesale varchar,
+    accountcodepurchase varchar,
+    state varchar,
+    attributes varchar
+);
+   """
+    conn.execute(query)
+
+
+def insert_into_sale_history_dump(conn):
+    """ """
+
+    query = """
+    insert into cli.sale_history_dump 
+    select
+        sale_history_line_id,
+        export_timestamp,
+        outlet,
+        date,
+        receipt_number,
+        line_type,
+        customer_code,
+        customer_name,
+        note,
+        quantity,
+        subtotal,
+        sales_tax,
+        discount,
+        loyalty,
+        total,
+        paid,
+        details,
+        register,
+        user,
+        status,
+        sku,
+        accountcodesale,
+        accountcodepurchase,
+        state,
+        attributes 
+    from
+        cli.raw_sale_history
+    """
+    print(
+        f"before insert, count={conn.execute('select count(*) from cli.sale_history_dump').fetchall()}"
+    )
+    print("inserting new file into sale_history_dump..")
+
+    conn.execute(query)
+    print(
+        f"new count={conn.execute('select count(*) from cli.sale_history_dump').fetchall()}"
+    )
+
+
+def ingest_sale_history(filepath, conn_str, outlet):
+    conn = generate_connection()
+    attach_target_db(conn, conn_str)
+    conn.execute("create schema if not exists cli")
+    create_raw_sale_history(filepath, conn, outlet)
+    create_sale_history_dump(conn)
+    insert_into_sale_history_dump(conn)
+
+
 def ingest_product_export(filepath, conn_str):
     """
     ingest the product export data file
@@ -153,6 +235,33 @@ def ingest_product_export(filepath, conn_str):
     insert_into_product_export_dump(conn)
 
     # cleanup
+
+
+@app.command()
+def sale_history(
+    outlet: str,
+    dbname: Annotated[str, typer.Option()],
+    user: Annotated[str, typer.Option()],
+    source_path: Annotated[str, typer.Option()],
+    host: Annotated[str, typer.Option()] = "localhost",
+    password: Annotated[str, typer.Option()] = "",
+    conn_str: Annotated[str, typer.Option()] = "",
+    delete_source: Annotated[
+        bool, typer.Option(help="If true, delete source file.")
+    ] = False,
+):
+    if not conn_str:
+        conn_str = f"dbname={dbname} user={user} password={password} host={host}"
+
+    OUTLET_NAMES = ["rozelle", "avalon", "manly"]
+    if outlet not in OUTLET_NAMES:
+        raise ValueError(f"expect outlet to be one of {OUTLET_NAMES} but got {outlet}")
+    ingest_sale_history(source_path, conn_str, outlet)
+
+    if delete_source:
+        print("deleting source file..")
+
+        Path(source_path).unlink()
 
 
 @app.command()
