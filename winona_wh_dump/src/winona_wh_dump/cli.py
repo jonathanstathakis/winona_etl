@@ -120,11 +120,16 @@ def create_raw_sale_history(filepath, conn, outlet: str):
     print(f"reading file at {filepath}..")
     print("adding the export timestamp to rows..")
     ctime = get_creation_time(filepath)
+    filename = Path(filepath).stem
 
     print(f"reading {filepath} into staging table..")
     query = f"""
-    create or replace table cli.raw_sale_history as select
+    create or replace table 
+    cli.raw_sale_history as 
+    select
+    row_number() over () as insert_idx,
     {ctime} as export_timestamp,
+    '{filename}' as export_filename,
     '{outlet}' as outlet,
     hash(row_number() over (), receipt_number, details, date, outlet, line_type) as sale_history_line_id,
     *
@@ -141,7 +146,9 @@ def create_sale_history_dump(conn):
     query = """
 CREATE TABLE if NOT EXISTS cli.sale_history_dump (
     sale_history_line_id varchar primary key,
+    insert_index int,
     export_timestamp bigint,
+    export_filename varchar,
     outlet varchar,
     date timestamp,
     receipt_number varchar,
@@ -158,7 +165,7 @@ CREATE TABLE if NOT EXISTS cli.sale_history_dump (
     paid double,
     details varchar,
     register varchar,
-    user varchar,
+    _user varchar,
     status varchar,
     sku varchar,
     accountcodesale varchar,
@@ -177,7 +184,9 @@ def insert_into_sale_history_dump(conn):
     insert into cli.sale_history_dump 
     select
         sale_history_line_id,
+        insert_idx,
         export_timestamp,
+        export_filename,
         outlet,
         date,
         receipt_number,
@@ -194,7 +203,7 @@ def insert_into_sale_history_dump(conn):
         paid,
         details,
         register,
-        user,
+        _user,
         status,
         sku,
         accountcodesale,

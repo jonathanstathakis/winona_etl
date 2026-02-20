@@ -1,0 +1,10 @@
+- [ ] document dbt models
+- [ ] rename project
+- [ ] define tests
+- [ ] add latest product export timestamp to data health dashboard
+- [ ] add timestamp.latest filter to product export marts/dashboards
+- [ ] normalise tags, category, price_tier, provide methods of listing products by each factor etc.
+- [ ] group wines by wine style via tags. Will have to define a bridge table
+- [ ] define wines by price tier
+- [x] define outlets.
+- [x] fix sales history CLI command

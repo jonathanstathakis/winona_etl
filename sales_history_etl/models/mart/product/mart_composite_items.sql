@@ -1,3 +1,4 @@
+/* composite items and their composing items */
 WITH composite AS (
     SELECT
         *
@@ -19,7 +20,8 @@ item AS (
 joined AS (
     SELECT
         composite.name AS composite_name,
-        composite.sku AS composite_sku,*
+        composite.sku AS composite_sku,
+        item.*
     FROM
         composite_to_item
         LEFT JOIN composite
