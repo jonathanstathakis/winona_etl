@@ -2,6 +2,8 @@
 
 A DBT project to convert the sales history dump to a data warehouse.
 
+This now includes the inventory data.
+
 Outcomes:
 
 - normalise sales history data
@@ -48,3 +50,19 @@ Integrate inventory data in so we can start looking at categories, pricing and C
 ## Integrating Inventory
 
 Should probably do it the same way the sales history is run. Difference with the sales history is that we want to record the export date because this will provide us with snapshots. Best to store the export date in the semi-processed file - each row gets an export date.
+
+## inventory
+
+No point normalising inventory at this time. But we can add a calculated column to the mart: total_inventory
+
+## Variant
+
+Gotta normalise variants as well. Sort of. Each variant has its own id so its just if wanna view them directly.. A problem for later.
+
+## Tags
+
+Going to have to normalise this presumably. Not sure ATM whether metabase requires a full star schema or not.
+
+## Progress
+
+POC done. Need to figure out how to package (docker) and start developing finer grained categories. Big one is defining product subcategories from tags, price tiers etc. Lots still to do.

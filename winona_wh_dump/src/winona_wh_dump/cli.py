@@ -71,7 +71,7 @@ CREATE TABLE if NOT EXISTS product_export_dump (
     composite_name VARCHAR,
     composite_sku VARCHAR,
     composite_quantity DOUBLE,
-    NAME VARCHAR,
+    name VARCHAR,
     description VARCHAR,
     product_category VARCHAR,
     variant_option_one_name VARCHAR,
