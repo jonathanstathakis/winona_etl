@@ -1,4 +1,9 @@
+{{ config(
+    enabled = false
+) }}
+
 with stg_item as (
+
     select
         *
     from
@@ -47,4 +52,4 @@ select
 from
     latest_export
     /* TODO: find all products in latest_export not in second_latest_export
-    */
+        */

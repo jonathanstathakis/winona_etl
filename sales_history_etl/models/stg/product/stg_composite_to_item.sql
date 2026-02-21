@@ -1,8 +1,8 @@
-WITH raw_product_export AS (
+WITH stg_product_export AS (
     SELECT
         *
     FROM
-        {{ ref('raw_product_export') }}
+        {{ ref('stg_product_export') }}
 ),
 composite AS (
     SELECT
@@ -18,15 +18,15 @@ item AS (
 ),
 composite_items AS (
     SELECT
-        raw_product_export.*
+        stg_product_export.*
     FROM
-        raw_product_export
+        stg_product_export
         LEFT JOIN composite
-        ON raw_product_export.sku = composite.sku
+        ON stg_product_export.sku = composite.sku
     WHERE
         --     composite.sku IS NOT NULL
         --     AND
-        raw_product_export.handle IS NULL
+        stg_product_export.handle IS NULL
 ),
 composite_id_to_item_id AS (
     SELECT

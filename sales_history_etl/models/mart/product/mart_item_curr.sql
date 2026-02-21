@@ -1,4 +1,4 @@
 SELECT
     *
 FROM
-    {{ ref('stg_item_current') }}
+    {{ ref('stg_item_curr') }}
