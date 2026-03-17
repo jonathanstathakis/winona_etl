@@ -1,0 +1,21 @@
+[project]
+name = "winona"
+version = "0.1.0"
+description = "CLI for ingesting Lightspeed product catalog exports and sales history into the Winona data warehouse."
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.4.4",
+    "python-dotenv>=1.0.0",
+    "pandas>=3.0.1",
+    "pathlib>=1.0.1",
+    "pytz>=2025.2",
+    "questionary>=2.1.0",
+    "rich>=14.3.2",
+    "typer>=0.23.1",
+]
+
+[tool.uv]
+package = true
+
+[project.scripts]
+winona = "winona.cli:app"

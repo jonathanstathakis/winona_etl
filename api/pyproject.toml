@@ -1,0 +1,19 @@
+[project]
+name = "winona-api"
+version = "0.1.0"
+description = "FastAPI backend for the Winona data warehouse."
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=1.4.4",
+    "fastapi>=0.115.0",
+    "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.20",
+    "uvicorn[standard]>=0.34.0",
+    "winona",
+]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+winona = { path = "..", editable = true }

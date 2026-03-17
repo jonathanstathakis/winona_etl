@@ -1,1 +1,28 @@
-a collection of exported sales history from lightspeed for Winona Wine. './raw' is the dir containing the dump, './sales_history_dump' is a CLI app for moving the exported files into the dir (or any other dir) and inserting into a database
+# Winona Data Warehouse
+
+This project is an in-house tool to manage and automate as many tasks as possible in my day to day.
+
+## Long Term Goals
+
+- [ ] data warehousing:
+    - [ ] sales history
+    - [ ] product catalog
+    - [ ] data health dashboard
+- [ ] product model categorization:
+    - [ ] manual
+    - [ ] automated (AI)
+- [ ] portfolio/price list analysis:
+    - [ ] parsing portfolios
+    - [ ] analysis: what does that look like
+- [ ] transfer generator: bulk transfers from manly to Rozelle
+- [ ] notebooks: whats the best flow?
+- [ ] events scheduling
+- [ ] buying budget
+- [ ] reporting:
+    - [ ] sales
+
+Monorepo for ingesting and transforming Lightspeed exports for Winona Wine.
+
+- `src/winona_wh/` — Python CLI for ingesting product catalog exports and sales history into PostgreSQL (`uv run winona_wh --help`)
+- `winona_etl/` — dbt project for transforming raw dumps into a normalised warehouse (staging → marts)
+- `eda/` — Marimo notebooks for exploratory analysis

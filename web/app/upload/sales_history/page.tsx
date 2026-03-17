@@ -1,0 +1,314 @@
+"use client";
+import { useEffect, useState } from "react";
+import {
+  Alert,
+  Box,
+  Button,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  Divider,
+  FormControl,
+  FormControlLabel,
+  InputLabel,
+  LinearProgress,
+  MenuItem,
+  Select,
+  Stack,
+  Typography,
+} from "@mui/material";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+
+const OUTLETS = ["rozelle", "avalon", "manly"];
+
+type Step = "idle" | "previewing" | "preview_ready" | "committing" | "success";
+
+interface PreviewData {
+  file_min: string | null;
+  file_max: string | null;
+  row_count: number;
+  existing_min: string | null;
+  existing_max: string | null;
+  duplicate_count: number;
+  duplicate_rows: number;
+}
+
+interface OutletCoverage {
+  existing_min: string | null;
+  existing_max: string | null;
+}
+
+function fmtDt(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString();
+}
+
+function uploadWithProgress(
+  url: string,
+  form: FormData,
+  onProgress: (pct: number) => void,
+): Promise<{ ok: boolean; status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => resolve({ ok: xhr.status < 400, status: xhr.status, text: xhr.responseText });
+    xhr.onerror = () => reject(new Error("Network error"));
+    xhr.send(form);
+  });
+}
+
+export default function SalesHistoryUploadPage() {
+  const [outlet, setOutlet] = useState("rozelle");
+  const [coverage, setCoverage] = useState<OutletCoverage | null>(null);
+  const [coverageLoading, setCoverageLoading] = useState(true);
+  const [file, setFile] = useState<File | null>(null);
+  const [step, setStep] = useState<Step>("idle");
+  const [preview, setPreview] = useState<PreviewData | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [uploadPct, setUploadPct] = useState(0);
+  const [commitError, setCommitError] = useState<string | null>(null);
+  const [deduplicate, setDeduplicate] = useState(false);
+
+  useEffect(() => {
+    setCoverageLoading(true);
+    fetch("/api/mart/data-health")
+      .then((r) => r.json())
+      .then((data) => {
+        const row = data.sale_history_by_outlet?.find(
+          (r: { outlet: string }) => r.outlet === outlet,
+        );
+        setCoverage(row
+          ? { existing_min: row.earliest_sale, existing_max: row.latest_sale }
+          : { existing_min: null, existing_max: null },
+        );
+      })
+      .catch(() => setCoverage(null))
+      .finally(() => setCoverageLoading(false));
+  }, [outlet]);
+
+  async function handleFileChange(f: File) {
+    setFile(f);
+    setPreview(null);
+    setPreviewError(null);
+    setCommitError(null);
+    setDeduplicate(false);
+    setStep("previewing");
+
+    const form = new FormData();
+    form.append("file", f);
+    form.append("outlet", outlet);
+
+    try {
+      const res = await fetch("/api/loader/sale-history/preview", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail ?? `HTTP ${res.status}`);
+      setPreview(data);
+      setStep("preview_ready");
+    } catch (err) {
+      setPreviewError((err as Error).message);
+      setStep("idle");
+    }
+  }
+
+  async function handleConfirm() {
+    if (!file) return;
+    setCommitError(null);
+    setStep("committing");
+    setUploadPct(0);
+
+    const form = new FormData();
+    form.append("file", file);
+    form.append("outlet", outlet);
+    if (deduplicate) form.append("deduplicate", "true");
+
+    try {
+      const res = await uploadWithProgress("/api/loader/sale-history", form, (pct) => {
+        setUploadPct(pct);
+      });
+      let data: { detail?: string } = {};
+      try { data = JSON.parse(res.text); } catch { /* plain-text */ }
+      if (!res.ok) throw new Error(data.detail ?? res.text.slice(0, 300) ?? `HTTP ${res.status}`);
+      setStep("success");
+    } catch (err) {
+      setCommitError((err as Error).message);
+      setStep("preview_ready");
+    } finally {
+      setUploadPct(0);
+    }
+  }
+
+  function handleReset() {
+    setFile(null);
+    setPreview(null);
+    setPreviewError(null);
+    setCommitError(null);
+    setDeduplicate(false);
+    setStep("idle");
+  }
+
+  function handleOutletChange(newOutlet: string) {
+    setOutlet(newOutlet);
+    if (file) handleFileChange(file);
+  }
+
+  const canConfirm = preview && (preview.duplicate_count === 0 || deduplicate);
+  const netRows = preview ? preview.row_count - (deduplicate ? preview.duplicate_rows : 0) : 0;
+
+  return (
+    <>
+      <Typography variant="h5" gutterBottom>Upload Sales History</Typography>
+      <Stack spacing={3} sx={{ maxWidth: 520 }}>
+
+        <FormControl fullWidth>
+          <InputLabel>Outlet</InputLabel>
+          <Select
+            value={outlet}
+            label="Outlet"
+            onChange={(e) => handleOutletChange(e.target.value)}
+            disabled={step === "committing"}
+          >
+            {OUTLETS.map((o) => (
+              <MenuItem key={o} value={o} sx={{ textTransform: "capitalize" }}>{o}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>
+            Current {outlet} coverage
+          </Typography>
+          {coverageLoading ? (
+            <CircularProgress size={16} />
+          ) : coverage?.existing_min ? (
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              <Chip size="small" label={`From: ${fmtDt(coverage.existing_min)}`} variant="outlined" />
+              <Chip size="small" label={`To: ${fmtDt(coverage.existing_max)}`} variant="outlined" />
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">No data yet</Typography>
+          )}
+        </Box>
+
+        <Button
+          component="label"
+          variant="outlined"
+          startIcon={<CloudUploadIcon />}
+          disabled={step === "committing"}
+        >
+          {file ? file.name : "Choose CSV"}
+          <input
+            type="file"
+            accept=".csv"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFileChange(f);
+            }}
+          />
+        </Button>
+
+        {previewError && <Alert severity="error">{previewError}</Alert>}
+
+        {step === "previewing" && (
+          <Stack direction="row" spacing={1} alignItems="center">
+            <CircularProgress size={18} />
+            <Typography variant="body2" color="text.secondary">Checking for overlaps…</Typography>
+          </Stack>
+        )}
+
+        {step === "preview_ready" && preview && (
+          <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 2 }}>
+            <Stack spacing={1.5}>
+              <Typography variant="subtitle2">File preview</Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap">
+                <Chip size="small" label={`${preview.row_count} sale rows`} />
+                <Chip size="small" label={`From: ${fmtDt(preview.file_min)}`} variant="outlined" />
+                <Chip size="small" label={`To: ${fmtDt(preview.file_max)}`} variant="outlined" />
+              </Stack>
+
+              <Divider />
+
+              <Typography variant="subtitle2">Current {outlet} coverage</Typography>
+              {preview.existing_min ? (
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  <Chip size="small" label={`From: ${fmtDt(preview.existing_min)}`} variant="outlined" />
+                  <Chip size="small" label={`To: ${fmtDt(preview.existing_max)}`} variant="outlined" />
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">No data yet</Typography>
+              )}
+
+              {preview.duplicate_count > 0 ? (
+                <Stack spacing={1}>
+                  <Alert severity="warning">
+                    {preview.duplicate_count} duplicate timestamp{preview.duplicate_count !== 1 ? "s" : ""} detected
+                    ({preview.duplicate_rows} row{preview.duplicate_rows !== 1 ? "s" : ""}).
+                  </Alert>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={deduplicate}
+                        onChange={(e) => setDeduplicate(e.target.checked)}
+                      />
+                    }
+                    label={
+                      <Typography variant="body2">
+                        Remove duplicates before uploading
+                        {deduplicate && ` — ${netRows} rows will be inserted`}
+                      </Typography>
+                    }
+                  />
+                </Stack>
+              ) : (
+                <Alert severity="success" icon={false}>No overlaps detected.</Alert>
+              )}
+
+              {commitError && <Alert severity="error">{commitError}</Alert>}
+
+              <Stack direction="row" spacing={1}>
+                <Button variant="contained" onClick={handleConfirm} disabled={!canConfirm}>
+                  Confirm Upload
+                </Button>
+                <Button variant="outlined" onClick={handleReset}>Cancel</Button>
+              </Stack>
+            </Stack>
+          </Box>
+        )}
+
+        {step === "committing" && (
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              {uploadPct < 100 ? `Uploading… ${uploadPct}%` : "Running dbt…"}
+            </Typography>
+            <LinearProgress variant={uploadPct < 100 ? "determinate" : "indeterminate"} value={uploadPct} />
+          </Box>
+        )}
+
+        {step === "success" && preview && (
+          <Box sx={{ border: 1, borderColor: "success.main", borderRadius: 1, p: 2 }}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CheckCircleOutlineIcon color="success" />
+                <Typography variant="subtitle2">Upload successful</Typography>
+              </Stack>
+              <Stack direction="row" spacing={1} flexWrap="wrap">
+                <Chip size="small" color="success" label={`${deduplicate ? netRows : preview.row_count} rows added`} />
+                <Chip size="small" label={`From: ${fmtDt(preview.file_min)}`} variant="outlined" />
+                <Chip size="small" label={`To: ${fmtDt(preview.file_max)}`} variant="outlined" />
+              </Stack>
+              <Typography variant="body2" color="text.secondary">Ready to upload the next batch?</Typography>
+              <Box>
+                <Button variant="outlined" onClick={handleReset}>Upload another file</Button>
+              </Box>
+            </Stack>
+          </Box>
+        )}
+
+      </Stack>
+    </>
+  );
+}

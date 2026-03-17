@@ -1,0 +1,32 @@
+with item as (
+    select
+        *
+    from
+        {{ ref('mart_item_by_tag') }}
+),
+filtered as (
+    select
+        distinct
+        on (id) *
+    from
+        item
+    where
+        tag = 'chardonnay'
+        or tag = 'variety_Chardonnay'
+        and active = 1
+),
+supplier_counts as (
+    select
+        supplier_name,
+        count(*)
+    from
+        filtered
+    group by
+        supplier_name
+    order by
+        count(*) desc
+)
+select
+    *
+from
+    supplier_counts
