@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: winona
+      POSTGRES_PASSWORD: ${WINONA_DB_PASSWORD:-winona}
+      POSTGRES_DB: winona_dw
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U winona -d winona_dw"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WINONA_DATABASE_URL: postgresql://winona:${WINONA_DB_PASSWORD:-winona}@db:5432/winona_dw
+      WINONA_DB_HOST: db
+      WINONA_DB_PORT: 5432
+      WINONA_DB_USER: winona
+      WINONA_DB_PASSWORD: ${WINONA_DB_PASSWORD:-winona}
+      WINONA_DB_NAME: winona_dw
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  web:
+    build:
+      context: web
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      API_URL: http://api:8000
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

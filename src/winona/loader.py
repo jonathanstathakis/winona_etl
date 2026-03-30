@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import subprocess
 import pandas as pd
@@ -11,13 +12,14 @@ _DBT_DIR = Path(__file__).parents[2] / "winona_etl"
 
 
 def _run_dbt(select: list[str] | None = None):
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
     print("running dbt seed..")
-    subprocess.run(["uv", "run", "dbt", "seed"], cwd=_DBT_DIR, check=True)
+    subprocess.run(["uv", "run", "dbt", "seed", "--profiles-dir", "."], cwd=_DBT_DIR, env=env, check=True)
     print("running dbt run..")
-    cmd = ["uv", "run", "dbt", "run"]
+    cmd = ["uv", "run", "dbt", "run", "--profiles-dir", "."]
     if select:
         cmd += ["--select"] + select
-    subprocess.run(cmd, cwd=_DBT_DIR, check=True)
+    subprocess.run(cmd, cwd=_DBT_DIR, env=env, check=True)
 
 app = typer.Typer(help="Ingest Lightspeed exports into the data warehouse.")
 

@@ -20,7 +20,7 @@ joined AS (
     SELECT
         {{ dbt_utils.star(
             from = ref('stg_sale_line'),
-            except = ['sale_id','date'],
+            except = ['receipt_number','date'],
             prefix = 'saleline_',
             relation_alias = 'sale_line'
         ) }},
@@ -39,7 +39,7 @@ joined AS (
         LEFT JOIN item
         ON item.sku = sale_line.sku
         LEFT JOIN sale
-        ON sale_line.sale_id = sale.sale_id
+        ON sale_line.receipt_number = sale.receipt_number
 )
 SELECT
     *

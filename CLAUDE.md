@@ -36,17 +36,22 @@ winona_data_wh/
 ## Running the stack
 
 ```bash
-# API (port 8000)
-cd api && uv run uvicorn winona_api.main:app --reload --port 8000
+# First time: copy .env.example to .env (edit WINONA_DB_PASSWORD if needed)
+cp .env.example .env
 
-# Frontend (port 3000, proxies /api → localhost:8000)
-cd web && npm run dev
+# Start everything (Postgres + API + web)
+docker compose up --build
 
-# CLI
-uv run winona --help
+# Web → http://localhost:3000
+# API → http://localhost:8000/docs
 ```
 
 Next.js proxies `/api/*` → `http://localhost:8000/api/*` via `next.config.ts` rewrites.
+
+For local CLI development (requires uv):
+```bash
+uv run winona --help
+```
 
 ---
 
