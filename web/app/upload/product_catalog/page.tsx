@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { useDropzone } from "react-dropzone";
 import {
   Alert,
   Box,
@@ -35,6 +36,19 @@ export default function ProductCatalogUploadPage() {
   const [phase, setPhase] = useState<Phase>(null);
   const [uploadPct, setUploadPct] = useState(0);
 
+  const busy = phase !== null;
+
+  const onDrop = useCallback((accepted: File[]) => {
+    if (accepted[0]) setFile(accepted[0]);
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { "text/csv": [".csv"] },
+    multiple: false,
+    disabled: busy,
+  });
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) return;
@@ -62,17 +76,35 @@ export default function ProductCatalogUploadPage() {
     }
   }
 
-  const busy = phase !== null;
-
   return (
     <>
       <Typography variant="h5" gutterBottom>Upload Product Catalog</Typography>
       <Box component="form" onSubmit={handleSubmit} sx={{ maxWidth: 480 }}>
         <Stack spacing={3}>
-          <Button component="label" variant="outlined" startIcon={<CloudUploadIcon />} disabled={busy}>
-            {file ? file.name : "Choose CSV"}
-            <input type="file" accept=".csv" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          </Button>
+          <Box
+            {...getRootProps()}
+            sx={{
+              border: "2px dashed",
+              borderColor: isDragActive ? "primary.main" : "divider",
+              borderRadius: 2,
+              p: 4,
+              textAlign: "center",
+              cursor: busy ? "not-allowed" : "pointer",
+              bgcolor: isDragActive ? "action.hover" : "background.paper",
+              transition: "border-color 0.15s, background-color 0.15s",
+            }}
+          >
+            <input {...getInputProps()} />
+            <CloudUploadIcon sx={{ fontSize: 40, color: "text.secondary", mb: 1 }} />
+            <Typography variant="body1">
+              {file ? file.name : isDragActive ? "Drop CSV here…" : "Drag & drop a CSV, or click to select"}
+            </Typography>
+            {file && (
+              <Typography variant="caption" color="text.secondary">
+                Click to change file
+              </Typography>
+            )}
+          </Box>
 
           <Button type="submit" variant="contained" disabled={!file || busy}>
             {busy ? (phase === "uploading" ? `Uploading… ${uploadPct}%` : "Running dbt…") : "Upload & Run dbt"}

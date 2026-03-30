@@ -22,6 +22,7 @@ import "./globals.css";
 const theme = createTheme({ palette: { mode: "light" } });
 
 const NAV = [
+  { label: "Home", href: "/" },
   { label: "Product Catalog", href: "/catalog" },
   { label: "Transfer", href: "/transfer" },
   { label: "Wine", href: "/wine" },
@@ -32,7 +33,7 @@ const NAV = [
 const DRAWER_WIDTH = 220;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -48,7 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   onClick={() => setOpen((o) => !o)}
                   sx={{ mr: 2 }}
                 >
-                  <MenuIcon />
+                  <MenuIcon sx={{ transition: "transform 0.2s", transform: open ? "rotate(0deg)" : "rotate(-90deg)" }} />
                 </IconButton>
                 <Typography variant="h6" noWrap>Winona</Typography>
               </Toolbar>
