@@ -3,10 +3,10 @@ winona_etl:
   outputs:
     dev:
       type: postgres
-      host: "{{ env_var('WINONA_DB_HOST') }}"
-      port: "{{ env_var('WINONA_DB_PORT') | int }}"
-      user: "{{ env_var('WINONA_DB_USER') }}"
-      password: "{{ env_var('WINONA_DB_PASSWORD') }}"
-      dbname: "{{ env_var('WINONA_DB_NAME') }}"
+      host: "{{ env_var('WINONA_DB_HOST', 'db') }}"
+      port: "{{ env_var('WINONA_DB_PORT', '5432') | int }}"
+      user: "{{ env_var('WINONA_DB_USER', 'winona') }}"
+      password: "{{ env_var('WINONA_DB_PASSWORD', 'winona') }}"
+      dbname: "{{ env_var('WINONA_DB_NAME', 'winona_dw') }}"
       schema: public
       threads: 4

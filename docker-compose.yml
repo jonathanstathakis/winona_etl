@@ -20,11 +20,7 @@ services:
         condition: service_healthy
     environment:
       WINONA_DATABASE_URL: postgresql://winona:${WINONA_DB_PASSWORD:-winona}@db:5432/winona_dw
-      WINONA_DB_HOST: db
-      WINONA_DB_PORT: 5432
-      WINONA_DB_USER: winona
       WINONA_DB_PASSWORD: ${WINONA_DB_PASSWORD:-winona}
-      WINONA_DB_NAME: winona_dw
     ports:
       - "8000:8000"
     healthcheck:
