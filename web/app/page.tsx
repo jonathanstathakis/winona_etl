@@ -8,6 +8,7 @@ import {
   Typography,
 } from "@mui/material";
 import Link from "next/link";
+import { auth } from "@/auth";
 
 const FEATURES = [
   {
@@ -15,34 +16,50 @@ const FEATURES = [
     href: "/catalog",
     description:
       "Browse, filter, sort, and export the full product catalog. Save filter and column presets for quick access.",
+    roles: ["superuser", "admin", "viewer"],
   },
   {
     title: "Transfer",
     href: "/transfer",
     description:
       "Build inventory transfer orders between venues. Add products individually or in bulk, edit quantities, and export as CSV.",
+    roles: ["superuser", "admin", "viewer"],
   },
   {
     title: "Wine",
     href: "/wine",
     description:
       "Wine-specific product view showing name, SKU, brand, pricing, and tags.",
+    roles: ["superuser", "admin", "viewer"],
   },
   {
     title: "Upload",
     href: "/upload",
     description:
       "Upload Lightspeed product export or sales history CSVs to refresh the data warehouse.",
+    roles: ["superuser", "admin"],
   },
   {
     title: "Data Health",
     href: "/health",
     description:
       "View data coverage — product export history and sale date ranges per outlet.",
+    roles: ["superuser", "admin", "viewer"],
+  },
+  {
+    title: "Users",
+    href: "/admin/users",
+    description:
+      "Manage user accounts — create, assign roles, and remove users.",
+    roles: ["superuser"],
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const session = await auth();
+  const role = session?.user?.role;
+  const features = FEATURES.filter((f) => !role || f.roles.includes(role));
+
   return (
     <Box>
       <Typography variant="h4" gutterBottom>
@@ -53,7 +70,7 @@ export default function Home() {
         explore the product catalog, and manage inventory transfers.
       </Typography>
       <Grid container spacing={3}>
-        {FEATURES.map((f) => (
+        {features.map((f) => (
           <Grid key={f.href} size={{ xs: 12, sm: 6, md: 4 }}>
             <Card variant="outlined" sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
               <CardContent sx={{ flexGrow: 1 }}>
