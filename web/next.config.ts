@@ -7,12 +7,14 @@ const nextConfig: NextConfig = {
     proxyClientMaxBodySize: 100 * 1024 * 1024, // 100MB
   },
   async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${apiUrl}/api/:path*`,
-      },
-    ];
+    return {
+      afterFiles: [
+        {
+          source: "/api/:path*",
+          destination: `${apiUrl}/api/:path*`,
+        },
+      ],
+    };
   },
 };
 
