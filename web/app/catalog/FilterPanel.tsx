@@ -52,6 +52,7 @@ export interface FilterItem {
   column: string;
   operator: FilterOp;
   value: string;
+  logic: LogicOperator;
 }
 
 const NO_VALUE_OPS = new Set<FilterOp>(["is_empty", "is_not_empty"]);
@@ -72,15 +73,14 @@ export function nextFilterId() {
 interface Props {
   columns: GridColDef[];
   items: FilterItem[];
-  logic: LogicOperator;
-  onChange: (items: FilterItem[], logic: LogicOperator) => void;
+  onChange: (items: FilterItem[]) => void;
 }
 
-export function FilterPanel({ columns, items, logic, onChange }: Props) {
+export function FilterPanel({ columns, items, onChange }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
 
-  const update = (nextItems: FilterItem[], nextLogic = logic) => onChange(nextItems, nextLogic);
+  const update = (nextItems: FilterItem[]) => onChange(nextItems);
 
   const handleDragStart = (idx: number) => setDragIndex(idx);
   const handleDragOver = (e: React.DragEvent, idx: number) => { e.preventDefault(); setOverIndex(idx); };
@@ -99,7 +99,7 @@ export function FilterPanel({ columns, items, logic, onChange }: Props) {
     if (columns.length === 0) return;
     const col = columns[0];
     const colType = (col.type ?? "string") as ColType;
-    update([...items, { id: nextFilterId(), column: col.field, operator: defaultOp(colType), value: "" }]);
+    update([...items, { id: nextFilterId(), column: col.field, operator: defaultOp(colType), value: "", logic: "and" }]);
   };
 
   const removeRow = (id: string) => update(items.filter((i) => i.id !== id));
@@ -116,10 +116,6 @@ export function FilterPanel({ columns, items, logic, onChange }: Props) {
         return { ...item, [key]: val };
       }),
     );
-  };
-
-  const handleLogicChange = (_: unknown, val: LogicOperator | null) => {
-    if (val) update(items, val);
   };
 
   return (
@@ -151,9 +147,9 @@ export function FilterPanel({ columns, items, logic, onChange }: Props) {
                   </Box>
                 ) : (
                   <ToggleButtonGroup
-                    value={logic}
+                    value={item.logic}
                     exclusive
-                    onChange={handleLogicChange}
+                    onChange={(_: unknown, val: LogicOperator | null) => { if (val) setField(item.id, "logic", val); }}
                     size="small"
                     sx={{ width: 96 }}
                   >
@@ -217,12 +213,15 @@ export function FilterPanel({ columns, items, logic, onChange }: Props) {
 export function applyColumnFilters(
   rows: Record<string, unknown>[],
   items: FilterItem[],
-  logic: LogicOperator,
 ): Record<string, unknown>[] {
   if (items.length === 0) return rows;
   return rows.filter((row) => {
-    const results = items.map((item) => matchesFilter(row, item));
-    return logic === "and" ? results.every(Boolean) : results.some(Boolean);
+    let result = matchesFilter(row, items[0]);
+    for (let i = 1; i < items.length; i++) {
+      const match = matchesFilter(row, items[i]);
+      result = items[i].logic === "and" ? result && match : result || match;
+    }
+    return result;
   });
 }
 

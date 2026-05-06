@@ -1,11 +1,20 @@
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from .routers import mart, loader, planogram
+from .migrations import run_migrations
 
 logging.basicConfig(level=logging.INFO)
-from fastapi.middleware.cors import CORSMiddleware
-from .routers import mart, loader
 
-app = FastAPI(title="Winona API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_migrations()
+    yield
+
+
+app = FastAPI(title="Winona API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,6 +25,7 @@ app.add_middleware(
 
 app.include_router(mart.router)
 app.include_router(loader.router)
+app.include_router(planogram.router)
 
 
 @app.get("/api/health")

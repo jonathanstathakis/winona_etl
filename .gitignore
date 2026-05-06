@@ -99,3 +99,4 @@ docs/_build/
 # Misc
 __pypackages__/
 .pybuilder/
+node_modules

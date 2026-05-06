@@ -21,7 +21,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import SaveIcon from "@mui/icons-material/Save";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
-import { FilterPanel, FilterItem, LogicOperator, applyColumnFilters, nextFilterId } from "./FilterPanel";
+import { FilterPanel, FilterItem, applyColumnFilters, nextFilterId } from "./FilterPanel";
 import { SortPanel, SortItem, applySort, nextSortId } from "./SortPanel";
 import { ColumnSelect, applyColumnSelection } from "./ColumnPanel";
 
@@ -30,7 +30,7 @@ const PRESETS_KEY = "winona_catalog_filter_presets";
 interface Preset {
   name: string;
   items: FilterItem[];
-  logic: LogicOperator;
+  logic?: string;
   sortItems: SortItem[];
   columnFields: string[];
 }
@@ -74,17 +74,15 @@ export default function CatalogPage() {
 
   // pending state (being built)
   const [pendingItems, setPendingItems] = useState<FilterItem[]>([]);
-  const [pendingLogic, setPendingLogic] = useState<LogicOperator>("and");
   const [pendingSortItems, setPendingSortItems] = useState<SortItem[]>([]);
   const [pendingColumnFields, setPendingColumnFields] = useState<string[]>([]);
 
   // applied state (active on grid)
   const [applied, setApplied] = useState<{
     items: FilterItem[];
-    logic: LogicOperator;
     sortItems: SortItem[];
     columnFields: string[];
-  }>({ items: [], logic: "and", sortItems: [], columnFields: [] });
+  }>({ items: [], sortItems: [], columnFields: [] });
 
   // presets
   const [presets, setPresets] = useState<Preset[]>([]);
@@ -115,12 +113,12 @@ export default function CatalogPage() {
   );
 
   const filteredRows = useMemo(() => {
-    const filtered = applyColumnFilters(rows, applied.items, applied.logic);
+    const filtered = applyColumnFilters(rows, applied.items);
     return applySort(filtered, applied.sortItems);
   }, [rows, applied]);
 
   const handleSearch = () =>
-    setApplied({ items: pendingItems, logic: pendingLogic, sortItems: pendingSortItems, columnFields: pendingColumnFields });
+    setApplied({ items: pendingItems, sortItems: pendingSortItems, columnFields: pendingColumnFields });
 
   const handleExportCSV = () => {
     if (filteredRows.length === 0) return;
@@ -147,7 +145,7 @@ export default function CatalogPage() {
     if (!name) return;
     const updated = [
       ...presets.filter((p) => p.name !== name),
-      { name, items: pendingItems, logic: pendingLogic, sortItems: pendingSortItems, columnFields: pendingColumnFields },
+      { name, items: pendingItems, sortItems: pendingSortItems, columnFields: pendingColumnFields },
     ];
     setPresets(updated);
     savePresets(updated);
@@ -160,7 +158,6 @@ export default function CatalogPage() {
     const items = preset.items.map((item) => ({ ...item, id: nextFilterId() }));
     const sortItems = (preset.sortItems ?? []).map((item) => ({ ...item, id: nextSortId() }));
     setPendingItems(items);
-    setPendingLogic(preset.logic);
     setPendingSortItems(sortItems);
     setPendingColumnFields(preset.columnFields ?? []);
     setPresetName(preset.name);
@@ -182,8 +179,7 @@ export default function CatalogPage() {
       <FilterPanel
         columns={columns}
         items={pendingItems}
-        logic={pendingLogic}
-        onChange={(items, logic) => { setPendingItems(items); setPendingLogic(logic); }}
+        onChange={(items) => setPendingItems(items)}
       />
 
       <SortPanel

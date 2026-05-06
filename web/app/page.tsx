@@ -53,6 +53,13 @@ const FEATURES = [
       "Manage user accounts — create, assign roles, and remove users.",
     roles: ["superuser"],
   },
+  {
+    title: "Planogram",
+    href: "/planogram",
+    description:
+    "Manage store planograms - shelf display of stock items.",
+    roles: ["superuser","admin","viewer"]
+  }
 ];
 
 export default async function Home() {
