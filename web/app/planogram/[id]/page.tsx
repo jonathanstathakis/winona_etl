@@ -1073,11 +1073,12 @@ export default function Page() {
               display: "flex", flexDirection: "column", alignItems: "center",
               padding: 4, boxSizing: "border-box", opacity: 0.85,
               boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+              transform: "translate(-50%, -80%)",
             }}>
               <WineBottle color={wineColor(dragItem.tags)} style={{ width: 40, height: 100, display: "block", marginTop: 4 }} />
               <div style={{ marginTop: 6, width: "100%", textAlign: "center", padding: "0 3px", boxSizing: "border-box" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.3, wordBreak: "break-word" }}>{dragItem.name}</div>
-                <div style={{ fontSize: 10, color: "#666", marginTop: 3, wordBreak: "break-word" }}>{dragItem.sku}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>{dragItem.name}</div>
+                <div style={{ fontSize: 10, color: "#666", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dragItem.sku}</div>
               </div>
             </div>
           ) : null}
@@ -1223,10 +1224,10 @@ function Slot({ item, index, shelfIndex, onRemove }: { item: Item | null; index:
           <div ref={dragRef} style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "grab", width: "100%" }} title={item.name}>
             <WineBottle color={wineColor(item.tags)} style={{ width: 40, height: 100, display: "block", marginTop: 4 }} />
             <div style={{ marginTop: 6, width: "100%", textAlign: "center", padding: "0 3px", boxSizing: "border-box" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.3, wordBreak: "break-word" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>
                 {item.name}
               </div>
-              <div style={{ fontSize: 10, color: "#666", marginTop: 3, wordBreak: "break-word" }}>{item.sku}</div>
+              <div style={{ fontSize: 10, color: "#666", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.sku}</div>
             </div>
           </div>
         </>
