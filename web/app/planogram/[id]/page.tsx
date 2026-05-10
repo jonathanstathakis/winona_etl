@@ -9,7 +9,7 @@ import { useDraggable, useDroppable } from "@dnd-kit/react";
 type Outlet = "rozelle" | "avalon" | "manly";
 
 /** A wine product that can be placed on a planogram shelf. */
-type Item = { id: string; sku: string; name: string; tags?: string };
+type Item = { id: string; sku: string; name: string; tags?: string; active?: number };
 
 /**
  * The 2-D slot grid for a single bay.
@@ -529,6 +529,7 @@ export default function Page() {
 
   const [products, setProducts] = useState<Item[]>([]);
   const [listMode, setListMode] = useState<"all" | "unplaced">("unplaced");
+  const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
@@ -598,7 +599,11 @@ export default function Page() {
     listMode === "unplaced" ? products.filter((p) => !placedIds.has(p.id)) : products
   ).filter(
     (p) => !searchLower || p.name.toLowerCase().includes(searchLower) || p.sku.toLowerCase().includes(searchLower),
-  );
+  ).filter((p) => {
+    if (activeFilter === "active")   return p.active !== 0;
+    if (activeFilter === "inactive") return p.active === 0;
+    return true;
+  });
   const totalPages = Math.ceil(listedProducts.length / PAGE_SIZE);
   const visibleProducts = listedProducts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -618,7 +623,7 @@ export default function Page() {
     if (event.canceled || !event.operation.target || !activeBayId) return;
     const sourceData = event.operation.source.data as DraggableData;
     const target = event.operation.target.data as { shelf: number; slot: number };
-    const item: Item = { id: sourceData.id, sku: sourceData.sku, name: sourceData.name, tags: sourceData.tags };
+    const item: Item = { id: sourceData.id, sku: sourceData.sku, name: sourceData.name, tags: sourceData.tags, active: sourceData.active };
 
     const nextLayout = activeBayLayout.map((s) => [...s]);
     if (sourceData.source === "slot") nextLayout[sourceData.shelf][sourceData.slot] = null;
@@ -718,6 +723,16 @@ export default function Page() {
   function handleRemoveItem(shelf: number, slot: number) {
     if (!activeBayId) return;
     const next = activeBayLayout.map((s, si) => s.map((cell, sli) => (si === shelf && sli === slot ? null : cell)));
+    setBayLayouts((prev) => ({ ...prev, [activeBayId]: next }));
+    setIsDirty(true);
+  }
+
+  /** Removes all inactive placements from the active bay. */
+  function handleClearInactive() {
+    if (!activeBayId) return;
+    const next = activeBayLayout.map((shelf) =>
+      shelf.map((cell) => (cell && cell.active === 0 ? null : cell))
+    );
     setBayLayouts((prev) => ({ ...prev, [activeBayId]: next }));
     setIsDirty(true);
   }
@@ -942,6 +957,11 @@ export default function Page() {
             <button onClick={handleExportPdf} disabled={isDownloading} style={{ ...btnStyle, marginLeft: 4 }}>
               {isDownloading ? "Generating…" : "Export PDF"}
             </button>
+            {activeBayLayout.some((s) => s.some((c) => c?.active === 0)) && (
+              <button onClick={handleClearInactive} style={{ ...btnStyle, marginLeft: 4, color: "#f0a500", borderColor: "#f0a500" }}>
+                Clear inactive
+              </button>
+            )}
           </div>
 
           {/* bay tabs */}
@@ -987,6 +1007,23 @@ export default function Page() {
                     }}
                   >
                     {mode === "all" ? "All" : "Unplaced"}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 6 }}>
+                {(["all", "active", "inactive"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => { setActiveFilter(f); setPage(0); }}
+                    style={{
+                      flex: 1, padding: "2px 0", fontSize: 11,
+                      fontWeight: activeFilter === f ? "bold" : "normal",
+                      background: activeFilter === f ? (f === "inactive" ? "#f0a500" : "#333") : "#eee",
+                      color: activeFilter === f ? "#fff" : "#333",
+                      border: "none", borderRadius: 3, cursor: "pointer",
+                    }}
+                  >
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
                   </button>
                 ))}
               </div>
@@ -1164,7 +1201,8 @@ function Slot({ item, index, shelfIndex, onRemove }: { item: Item | null; index:
       onMouseLeave={() => setHovered(false)}
       style={{
         position: "relative", width: 90, flexShrink: 0, height: 220,
-        border: "1px dashed gray", display: "flex", flexDirection: "column",
+        border: item?.active === 0 ? "2px solid #f0a500" : "1px dashed gray",
+        display: "flex", flexDirection: "column",
         alignItems: "center", justifyContent: "flex-start",
         padding: "4px", boxSizing: "border-box",
       }}
@@ -1176,6 +1214,11 @@ function Slot({ item, index, shelfIndex, onRemove }: { item: Item | null; index:
               onClick={() => onRemove(shelfIndex, index)}
               style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, padding: 0, lineHeight: 1, fontSize: 11, cursor: "pointer", border: "none", borderRadius: 2, background: "#e55", color: "#fff" }}
             >×</button>
+          )}
+          {item.active === 0 && (
+            <div style={{ position: "absolute", top: 2, left: 2, fontSize: 8, fontWeight: 700, color: "#f0a500", lineHeight: 1 }}>
+              inactive
+            </div>
           )}
           <div ref={dragRef} style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "grab", width: "100%" }} title={item.name}>
             <WineBottle color={wineColor(item.tags)} style={{ width: 40, height: 100, display: "block", marginTop: 4 }} />
