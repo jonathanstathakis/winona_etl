@@ -25,16 +25,24 @@ import { FilterPanel, FilterItem, applyColumnFilters, nextFilterId } from "./Fil
 import { SortPanel, SortItem, applySort, nextSortId } from "./SortPanel";
 import { ColumnSelect, applyColumnSelection } from "./ColumnPanel";
 
+/** localStorage key under which filter/sort/column presets are persisted. */
 const PRESETS_KEY = "winona_catalog_filter_presets";
 
+/** A named snapshot of filter rules, sort rules, and column visibility saved by the user. */
 interface Preset {
   name: string;
   items: FilterItem[];
+  /** Reserved for a future top-level logic operator; currently unused. */
   logic?: string;
   sortItems: SortItem[];
+  /** Ordered list of field names for the visible columns in this preset. */
   columnFields: string[];
 }
 
+/**
+ * Reads saved presets from localStorage, returning an empty array on parse failure.
+ * @returns The stored preset array, or `[]` if none exist or the value is corrupt.
+ */
 function loadPresets(): Preset[] {
   try {
     return JSON.parse(localStorage.getItem(PRESETS_KEY) ?? "[]");
@@ -43,10 +51,19 @@ function loadPresets(): Preset[] {
   }
 }
 
+/**
+ * Serialises and writes the preset array to localStorage.
+ * @param presets - The current preset array to persist.
+ */
 function savePresets(presets: Preset[]) {
   localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
 }
 
+/**
+ * Derives MUI DataGrid column definitions from the keys of a representative data row.
+ * @param row - A single data row whose keys and value types are used to infer column metadata.
+ * @returns An array of GridColDef objects, with a special date formatter applied to `export_timestamp`.
+ */
 function buildColumns(row: Record<string, unknown>): GridColDef[] {
   return Object.keys(row).map((key) => {
     const base: GridColDef = {
@@ -66,6 +83,7 @@ function buildColumns(row: Record<string, unknown>): GridColDef[] {
   });
 }
 
+/** Product catalog page that fetches mart data and exposes filtering, sorting, column selection, CSV export, and named presets. */
 export default function CatalogPage() {
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [columns, setColumns] = useState<GridColDef[]>([]);

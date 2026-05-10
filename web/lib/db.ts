@@ -2,6 +2,12 @@ import { Pool } from "pg";
 
 const globalForPg = globalThis as unknown as { pgPool?: Pool };
 
+/**
+ * Shared pg connection pool for the Winona data warehouse, reused across hot-reloads in development.
+ *
+ * Connection parameters are read from `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE`
+ * environment variables, falling back to the local development defaults.
+ */
 export const pool =
   globalForPg.pgPool ??
   new Pool({

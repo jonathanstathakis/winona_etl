@@ -11,10 +11,16 @@ import {
   Typography,
 } from "@mui/material";
 
+/** Props for the ChangePasswordForm component. */
 interface Props {
+  /**
+   * Server action used as the form's `useActionState` handler; returns `"ok"` on
+   * success or an error message string on failure.
+   */
   action: (_: string | null, formData: FormData) => Promise<string | null>;
 }
 
+/** Form that allows the authenticated user to change their password, showing success or error feedback. */
 export default function ChangePasswordForm({ action }: Props) {
   const [result, formAction, pending] = useActionState(action, null);
 

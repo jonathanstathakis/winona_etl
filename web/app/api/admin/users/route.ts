@@ -4,6 +4,10 @@ import { listUsers, createUser } from "@/lib/users";
 import bcrypt from "bcryptjs";
 import type { Role } from "@/lib/users";
 
+/**
+ * Checks that the current session belongs to a superuser.
+ * @returns `null` if the check passes, or a 403 `NextResponse` if it fails.
+ */
 async function requireSuperuser() {
   const session = await auth();
   if (session?.user?.role !== "superuser")
@@ -11,6 +15,12 @@ async function requireSuperuser() {
   return null;
 }
 
+/**
+ * `GET /api/admin/users` — Returns all users (without password hashes), ordered by creation date.
+ *
+ * Requires superuser role; responds with 403 otherwise.
+ * @returns JSON array of `{ id, username, role, created_at }` objects.
+ */
 export async function GET() {
   const denied = await requireSuperuser();
   if (denied) return denied;
@@ -18,6 +28,13 @@ export async function GET() {
   return NextResponse.json(users);
 }
 
+/**
+ * `POST /api/admin/users` — Creates a new user with a bcrypt-hashed password.
+ *
+ * Requires superuser role; responds with 403 otherwise.
+ * @param req - JSON body: `{ username: string, password: string, role: Role }`.
+ * @returns `{ ok: true }` with status 201 on success.
+ */
 export async function POST(req: Request) {
   const denied = await requireSuperuser();
   if (denied) return denied;

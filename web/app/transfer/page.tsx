@@ -47,6 +47,13 @@ const OPS = [
   { value: "eq", label: "=" },
 ];
 
+/**
+ * Returns true if `val` satisfies the comparison `op` against `threshold`.
+ * @param val - The numeric value to test.
+ * @param op - Comparison operator key: "any", "gt", "gte", "lt", "lte", or "eq".
+ * @param threshold - The right-hand side of the comparison.
+ * @returns True when the condition holds, or unconditionally when op is "any".
+ */
 function applyOp(val: number, op: string, threshold: number): boolean {
   if (op === "any") return true;
   if (op === "gt") return val > threshold;
@@ -57,6 +64,13 @@ function applyOp(val: number, op: string, threshold: number): boolean {
   return true;
 }
 
+/**
+ * Finds the first key in `row` whose name starts with `prefix` and contains `venue` (case-insensitive).
+ * @param row - A single product catalog row used as a key-schema reference.
+ * @param prefix - Column name prefix to match (e.g. "inventory", "restock_level").
+ * @param venue - Venue name fragment to match within the column name.
+ * @returns The matching column key, or null if none is found.
+ */
 function detectCol(row: Record<string, unknown>, prefix: string, venue: string): string | null {
   return (
     Object.keys(row).find(
@@ -65,33 +79,49 @@ function detectCol(row: Record<string, unknown>, prefix: string, venue: string):
   );
 }
 
+/**
+ * Returns the inventory stock column name for the given venue by delegating to `detectCol` with the "inventory" prefix.
+ * @param row - A single product catalog row used as a key-schema reference.
+ * @param venue - Venue name to search for in the column key.
+ * @returns The matching inventory column key, or null if none is found.
+ */
 function detectStockCol(row: Record<string, unknown>, venue: string): string | null {
   return detectCol(row, "inventory", venue);
 }
 
+/** Comparison filter applied to a venue's stock level when bulk-matching products. */
 interface StockFilter {
+  /** Comparison operator key passed to `applyOp` (e.g. "gt", "lte", "any"). */
   op: string;
+  /** Numeric threshold for the comparison. */
   val: number;
 }
 
+/** A single row in the transfer order AG Grid, derived from the product catalog with an added transfer quantity. */
 interface TransferRow extends Record<string, unknown> {
   id: string;
+  /** Lightspeed product handle used in CSV exports. */
   handle: string;
   sku: string;
   name: string;
   product_category: string;
+  /** Units to transfer; the only editable field in the grid. */
   quantity: number;
 }
 
+/** A persisted transfer order stored in localStorage. */
 interface SavedTransfer {
+  /** UUID identifying the transfer. */
   id: string;
   name: string;
+  /** ISO 8601 timestamp of the last save. */
   savedAt: string;
   sourceVenue: string;
   destVenue: string;
   rows: TransferRow[];
 }
 
+/** Reads all saved transfers from localStorage, returning an empty array on parse failure. */
 function loadTransfers(): SavedTransfer[] {
   try {
     return JSON.parse(localStorage.getItem(TRANSFERS_KEY) ?? "[]");
@@ -100,6 +130,7 @@ function loadTransfers(): SavedTransfer[] {
   }
 }
 
+/** Serialises and writes the full transfers list to localStorage. */
 function persistTransfers(transfers: SavedTransfer[]) {
   localStorage.setItem(TRANSFERS_KEY, JSON.stringify(transfers));
 }
@@ -110,6 +141,16 @@ const getRowId = (p: { data: TransferRow }) => String(p.data.id);
 // TODO: AG Grid resets column order when editing the quantity cell. Multiple approaches
 // tried (onGridColumnsChanged + applyColumnState, React.memo isolation, stable prop refs)
 // but the reset persists. Investigate AG Grid cell editing lifecycle / columnDefs reprocessing.
+/**
+ * Memoised AG Grid wrapper for the transfer order table.
+ *
+ * Callbacks that mutate parent state are passed in via stable refs so that the
+ * grid does not re-mount on every parent render.  The `navigateRef` callback
+ * scrolls to a row and opens its quantity cell for editing; `deleteRowRef`
+ * removes a row from the parent state; `getRowsRef` reads the current rows
+ * directly from the AG Grid API, bypassing React state, to guarantee an
+ * up-to-date snapshot when saving or exporting.
+ */
 const TransferGrid = memo(function TransferGrid({
   rowData,
   colDefs,
@@ -179,6 +220,7 @@ const TransferGrid = memo(function TransferGrid({
   );
 });
 
+/** Transfer Generator page: builds, filters, saves, and exports inventory transfer orders between Winona outlets. */
 export default function TransferPage() {
   const [products, setProducts] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
@@ -248,8 +290,13 @@ export default function TransferPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  /** Reads all current rows directly from the AG Grid API via the stable ref. */
   const getGridRows = () => getRowsRef.current();
 
+  /**
+   * Products that pass the current bulk-add filters: category selection, source
+   * stock filter, and destination stock filter.
+   */
   const bulkMatchProducts = useMemo(() => {
     const srcCol = venueStockCols[sourceVenue];
     const dstCol = venueStockCols[destVenue];
@@ -270,6 +317,7 @@ export default function TransferPage() {
   );
   const bulkNewCount = bulkMatchProducts.length - bulkDuplicateCount;
 
+  /** Appends all bulk-matched products not already in the transfer list, each with the current default quantity. */
   const handleBulkAdd = () => {
     const existingIds = new Set(rowData.map((r) => r.id));
     const toAdd = bulkMatchProducts
@@ -279,6 +327,10 @@ export default function TransferPage() {
     setBulkAddOpen(false);
   };
 
+  /**
+   * Adds a single product to the transfer list, or navigates to and highlights its
+   * existing row (and shows a warning snackbar) if it is already present.
+   */
   const handleAddSingle = (product: Record<string, unknown> | null) => {
     if (!product) return;
     const id = String(product.id);
@@ -290,6 +342,12 @@ export default function TransferPage() {
     setRowData((prev) => [...prev, { ...product, quantity: defaultQty } as TransferRow]);
   };
 
+  /**
+   * Generates and triggers a browser download of a CSV file containing the transfer
+   * rows (handle, sku, quantity).  Rows with zero quantity are included or excluded
+   * based on the `exportZeroQty` option.  Shows an error snackbar if no rows remain
+   * after filtering.
+   */
   const handleExportCSV = () => {
     setExportOpen(false);
     const rows = exportZeroQty ? getGridRows() : getGridRows().filter((r) => (r.quantity ?? 0) > 0);
@@ -309,6 +367,11 @@ export default function TransferPage() {
     setExportSuccess(filename);
   };
 
+  /**
+   * Upserts the current transfer into the saved-transfers list and persists it to localStorage.
+   * @param name - Display name for the transfer.
+   * @param id - Existing transfer UUID to overwrite; omit to create a new transfer.
+   */
   const handleSave = (name: string, id?: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -329,6 +392,7 @@ export default function TransferPage() {
     setJustSaved(true);
   };
 
+  /** Restores a previously saved transfer into the active editor and closes the browser dialog. */
   const handleLoadTransfer = (transfer: SavedTransfer) => {
     setRowData(transfer.rows);
     setSourceVenue(transfer.sourceVenue);
@@ -338,12 +402,18 @@ export default function TransferPage() {
     setBrowserOpen(false);
   };
 
+  /** Removes a saved transfer by ID from state and localStorage. */
   const handleDeleteTransfer = (id: string) => {
     const updated = savedTransfers.filter((t) => t.id !== id);
     setSavedTransfers(updated);
     persistTransfers(updated);
   };
 
+  /**
+   * AG Grid column definitions derived from the currently selected source and
+   * destination venues.  Venue-specific stock, restock level, and reorder point
+   * columns are included only when the corresponding catalog column is detected.
+   */
   const colDefs = useMemo((): ColDef[] => {
     const srcCol = venueStockCols[sourceVenue];
     const dstCol = venueStockCols[destVenue];

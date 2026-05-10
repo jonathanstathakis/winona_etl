@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import LoginForm from "./LoginForm";
 
+/** Login page that redirects authenticated users to home and renders the login form for others. */
 export default async function LoginPage({
   searchParams,
 }: {
@@ -13,6 +14,12 @@ export default async function LoginPage({
 
   const { callbackUrl } = await searchParams;
 
+  /**
+   * Server action that attempts credential sign-in and returns an error message on failure.
+   * @param _ - Previous action state (unused).
+   * @param formData - Form data containing `username` and `password` fields.
+   * @returns An error string on failure, or null on success.
+   */
   async function login(_: string | null, formData: FormData): Promise<string | null> {
     "use server";
     try {

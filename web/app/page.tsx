@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { auth } from "@/auth";
 
+/** Navigation cards shown on the home page, filtered by the current user's role. */
 const FEATURES = [
   {
     title: "Product Catalog",
@@ -62,6 +63,7 @@ const FEATURES = [
   }
 ];
 
+/** Home page displaying role-filtered feature cards for the Winona data warehouse. */
 export default async function Home() {
   const session = await auth();
   const role = session?.user?.role;

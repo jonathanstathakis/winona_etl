@@ -4,6 +4,7 @@ import InventoryIcon from "@mui/icons-material/Inventory";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import Link from "next/link";
 
+/** Navigation entries for each upload sub-page, each with a route, icon, label, and description. */
 const UPLOADS = [
   {
     href: "/upload/product_catalog",
@@ -19,6 +20,7 @@ const UPLOADS = [
   },
 ];
 
+/** Landing page for the Upload section, showing navigation cards for each upload type. */
 export default function UploadIndexPage() {
   return (
     <>

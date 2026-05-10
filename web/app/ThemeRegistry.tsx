@@ -8,6 +8,10 @@ import CssBaseline from "@mui/material/CssBaseline";
 
 const theme = createTheme({ palette: { mode: "light" } });
 
+/**
+ * Provides MUI theme and Emotion style cache to the component tree, flushing
+ * server-inserted styles into the HTML response for SSR compatibility.
+ */
 export default function ThemeRegistry({ children }: { children: React.ReactNode }) {
   const [{ cache, flush }] = useState(() => {
     const cache = createCache({ key: "mui" });

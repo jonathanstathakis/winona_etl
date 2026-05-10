@@ -19,6 +19,7 @@ import ThemeRegistry from "./ThemeRegistry";
 import SignOutButton from "./SignOutButton";
 import type { Role } from "@/lib/users";
 
+/** Navigation links shown in the side drawer, each restricted to specific roles. */
 const NAV = [
   { label: "Home", href: "/", roles: ["superuser", "admin", "viewer"] },
   { label: "Product Catalog", href: "/catalog", roles: ["superuser", "admin", "viewer"] },
@@ -32,12 +33,16 @@ const NAV = [
 
 const DRAWER_WIDTH = 220;
 
+/** Props for the AppShell component. */
 interface Props {
   children: React.ReactNode;
+  /** Authenticated user, or null when the visitor is unauthenticated. */
   user: { name?: string | null; role?: Role } | null;
+  /** Server action invoked when the user clicks Sign out. */
   signOutAction: () => Promise<void>;
 }
 
+/** Top-level application shell with a fixed AppBar and a collapsible side drawer filtered by user role. */
 export default function AppShell({ children, user, signOutAction }: Props) {
   const [open, setOpen] = useState(false);
 

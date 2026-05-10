@@ -2,17 +2,23 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
+/** One of the three Winona wine shop locations. */
 type Outlet = "rozelle" | "avalon" | "manly";
+
+/** Summary record for a planogram returned by the listing API. */
 type PlanogramMeta = {
   id: string;
   outlet: Outlet;
   name: string;
+  /** Lifecycle state of the planogram. */
   status: "draft" | "active" | "archived";
+  /** ISO 8601 creation timestamp. */
   created_at: string;
 };
 
 const OUTLETS: Outlet[] = ["rozelle", "avalon", "manly"];
 // TODO: finish planogram menu
+/** Maps a planogram status string to a badge background colour hex. */
 const statusColor = (s: string) =>
   s === "active" ? "#2a7" : s === "archived" ? "#999" : "#e90";
 
@@ -21,6 +27,10 @@ const btnStyle: React.CSSProperties = {
   border: "1px solid #ccc", borderRadius: 4, background: "#f5f5f5",
 };
 
+/**
+ * Modal dialog with a single text input used for naming or renaming a planogram.
+ * Clicking outside the dialog or pressing Escape invokes `onCancel`.
+ */
 function NameDialog({
   title,
   initial,
@@ -29,6 +39,7 @@ function NameDialog({
   onCancel,
 }: {
   title: string;
+  /** Pre-filled value for the name input (used when renaming). */
   initial?: string;
   confirmLabel: string;
   onConfirm: (name: string) => void;
@@ -69,6 +80,7 @@ function NameDialog({
   );
 }
 
+/** Vertical ellipsis (⋮) button that opens a small context menu with Rename and Delete actions. */
 function DotMenu({ onRename, onDelete }: { onRename: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -118,6 +130,7 @@ function DotMenu({ onRename, onDelete }: { onRename: () => void; onDelete: () =>
   );
 }
 
+/** Planogram index page: lists planograms per outlet and allows creating, renaming, and deleting them. */
 export default function PlanogramLanding() {
   const router = useRouter();
   const [outlet, setOutlet] = useState<Outlet>("rozelle");
@@ -132,6 +145,7 @@ export default function PlanogramLanding() {
       .then(setPlanograms);
   }, [outlet]);
 
+  /** Creates a new planogram for the active outlet via the API and navigates to its editor. */
   async function handleCreate(name: string) {
     const res = await fetch("/api/planogram/planograms", {
       method: "POST",
@@ -142,6 +156,7 @@ export default function PlanogramLanding() {
     router.push(`/planogram/${created.id}`);
   }
 
+  /** PATCHes the planogram name via the API and updates the local list optimistically. */
   async function handleRename(id: string, name: string) {
     const res = await fetch(`/api/planogram/planograms/${id}`, {
       method: "PATCH",
@@ -153,6 +168,7 @@ export default function PlanogramLanding() {
     setRenaming(null);
   }
 
+  /** Deletes a planogram via the API and removes it from the local list. */
   async function handleDelete(id: string) {
     await fetch(`/api/planogram/planograms/${id}`, { method: "DELETE" });
     setPlanograms((prev) => prev.filter((p) => p.id !== id));

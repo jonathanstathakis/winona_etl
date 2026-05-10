@@ -5,23 +5,41 @@ import { useParams, useRouter } from "next/navigation";
 import { DragDropProvider, DragOverlay } from "@dnd-kit/react";
 import { useDraggable, useDroppable } from "@dnd-kit/react";
 
+/** One of the three Winona wine shop locations. */
 type Outlet = "rozelle" | "avalon" | "manly";
+
+/** A wine product that can be placed on a planogram shelf. */
 type Item = { id: string; sku: string; name: string; tags?: string };
+
+/**
+ * The 2-D slot grid for a single bay.
+ * Outer array is shelves (top to bottom); inner array is slots (left to right).
+ * A null value means the slot is empty.
+ */
 type BayLayout = (Item | null)[][];
+
+/** Which half of a drop target the pointer was over when an item was released. */
 type DropSide = "left" | "right";
+
+/** Identifies where a dragged item originated: the sidebar list or an occupied slot. */
 type DragSource =
   | { source: "sidebar" }
   | { source: "slot"; shelf: number; slot: number };
+
+/** The data payload attached to every draggable item, combining product fields with the drag origin. */
 type DraggableData = Item & DragSource;
 
+/** Configuration for a physical bay (gondola unit) within a planogram. */
 type BayConfig = {
   id: string;
   outlet: Outlet;
   name: string;
   description: string;
+  /** Slot count for each shelf, ordered top to bottom. */
   shelves: number[];
 };
 
+/** Lightweight metadata for a planogram, used in the editor toolbar. */
 type PlanogramMeta = {
   id: string;
   outlet: Outlet;
@@ -29,6 +47,7 @@ type PlanogramMeta = {
   status: "draft" | "active" | "archived";
 };
 
+/** A single item placement as returned by and sent to the API. */
 type PlacementRaw = {
   bay_id: string;
   shelf_index: number;
@@ -40,10 +59,26 @@ const OUTLETS: Outlet[] = ["rozelle", "avalon", "manly"];
 const DEFAULT_SLOTS = 7;
 const NAVY = "#2E5FA3";
 
+/**
+ * Creates a fully empty BayLayout from a shelf configuration.
+ * @param shelves - Array of slot counts, one per shelf.
+ * @returns A 2-D array of nulls with the same shape as the shelf config.
+ */
 function makeEmptyBayLayout(shelves: number[]): BayLayout {
   return shelves.map((n) => Array.from({ length: n }, () => null));
 }
 
+/**
+ * Merges existing slot contents into a resized shelf configuration.
+ *
+ * For each shelf, items are preserved up to `min(oldLength, newLength)` slots.
+ * Shelves that are new (index beyond the old layout) start empty.  Items in
+ * slots that fall outside the new slot count are dropped silently.
+ *
+ * @param old - The current BayLayout before the shelf configuration changed.
+ * @param newShelves - The new slot counts per shelf.
+ * @returns A new BayLayout with the updated shape and preserved item positions.
+ */
 function reconcileLayout(old: BayLayout, newShelves: number[]): BayLayout {
   return newShelves.map((count, i) => {
     const row = old[i] ?? [];
@@ -53,6 +88,10 @@ function reconcileLayout(old: BayLayout, newShelves: number[]): BayLayout {
   });
 }
 
+/**
+ * Converts a raw API bay response object into a typed `BayConfig`, sorting
+ * the shelves array by `shelf_index` so the order matches the visual layout.
+ */
 function apiBayToConfig(b: any): BayConfig {
   const shelves = [...(b.shelves ?? [])]
     .sort((a: any, b: any) => a.shelf_index - b.shelf_index)
@@ -60,6 +99,7 @@ function apiBayToConfig(b: any): BayConfig {
   return { id: b.id, outlet: b.outlet, name: b.name, description: b.description, shelves };
 }
 
+/** Converts a `BayConfig` to the request body shape expected by the bay create/update API. */
 function configToApiBay(c: BayConfig) {
   return {
     outlet: c.outlet,
@@ -69,6 +109,13 @@ function configToApiBay(c: BayConfig) {
   };
 }
 
+/**
+ * Maps a product's tag string to a representative bottle colour hex.
+ * Matches are checked in priority order: red, white, orange, rosé; anything
+ * else (e.g. sparkling, fortified, beer) falls back to a dark green.
+ * @param tags - Comma-separated tag string from the product catalog.
+ * @returns A CSS hex colour string.
+ */
 function wineColor(tags?: string): string {
   const t = (tags ?? "").toLowerCase();
   if (t.includes("red wine")) return "#7B1C1C";
@@ -78,6 +125,14 @@ function wineColor(tags?: string): string {
   return "#2D5A27";
 }
 
+/**
+ * Produces a unique "Copy" name by appending the lowest unused integer suffix.
+ * Strips any existing ` (n)` suffix before searching for free numbers, so
+ * duplicating "Bay (2)" yields "Bay (1)" if that slot is free, not "Bay (2) (1)".
+ * @param name - The original bay name to base the copy on.
+ * @param existing - All current bay configs used to detect name collisions.
+ * @returns A name of the form `"<base> (<n>)"` where n is the smallest unused positive integer.
+ */
 function nextCopyName(name: string, existing: BayConfig[]): string {
   const base = name.replace(/ \(\d+\)$/, "");
   const used = new Set(
@@ -91,6 +146,12 @@ function nextCopyName(name: string, existing: BayConfig[]): string {
   return `${base} (${n})`;
 }
 
+/**
+ * Flattens all bay layouts into the flat `PlacementRaw[]` array expected by the save API.
+ * Empty slots (null) are omitted from the output.
+ * @param bayLayouts - Map of bay ID to its current 2-D slot grid.
+ * @returns Array of placement records covering every occupied slot across all bays.
+ */
 function buildPlacements(bayLayouts: Record<string, BayLayout>): PlacementRaw[] {
   const out: PlacementRaw[] = [];
   for (const [bay_id, layout] of Object.entries(bayLayouts)) {
@@ -104,6 +165,22 @@ function buildPlacements(bayLayouts: Record<string, BayLayout>): PlacementRaw[] 
   return out;
 }
 
+/**
+ * Attempts to place `item` at `targetIdx` by sliding existing items one position
+ * in direction `dir` to open a gap.
+ *
+ * "Cascade" means that every occupied slot between `targetIdx` and the nearest
+ * empty slot is shifted by one position: rightward cascade scans right for an
+ * empty slot then shifts items from that empty slot back to `targetIdx` one step
+ * to the right each; leftward cascade does the mirror image to the left.
+ *
+ * @param slots - Current shelf slot array (will not be mutated).
+ * @param targetIdx - The index where `item` should land after the shift.
+ * @param item - The item to insert.
+ * @param dir - Direction in which to look for a free slot.
+ * @returns A new slots array with `item` at `targetIdx` and neighbours shifted,
+ *   or null if no empty slot exists in the requested direction.
+ */
 function cascadeShift(
   slots: (Item | null)[],
   targetIdx: number,
@@ -133,6 +210,26 @@ function cascadeShift(
   }
 }
 
+/**
+ * Inserts `item` into `slots` at `targetIdx` using a three-tier fallback strategy.
+ *
+ * 1. If the target slot is empty, place the item there directly.
+ * 2. Otherwise, infer a preferred cascade direction from `dropSide` (drop on the
+ *    left half → cascade right to make room; drop on the right half → cascade left)
+ *    and call `cascadeShift` in that direction.
+ * 3. If the preferred direction has no free slot, try the opposite direction.
+ * 4. If both cascade attempts fail (shelf is full), displace the occupant: place
+ *    `item` at `targetIdx`, and if the drag originated from the same shelf, put
+ *    the displaced item back at the source slot; otherwise the displaced item is lost.
+ *
+ * @param slots - Current shelf slot array.
+ * @param targetIdx - Drop target slot index.
+ * @param item - The item being inserted.
+ * @param dropSide - Which half of the target slot the pointer was over on drop.
+ * @param sourceSlotIdx - The slot index the item came from on this shelf, or null
+ *   if the drag originated from a different shelf or the sidebar.
+ * @returns A new slots array with `item` placed and neighbours adjusted.
+ */
 function insertOnShelf(
   slots: (Item | null)[],
   targetIdx: number,
@@ -159,6 +256,10 @@ function insertOnShelf(
 
 // --- NameDialog ---
 
+/**
+ * Modal dialog with a single text input used for naming a new bay or saving a planogram copy.
+ * Clicking outside the dialog or pressing Escape invokes `onCancel`.
+ */
 function NameDialog({
   title,
   confirmLabel,
@@ -221,17 +322,25 @@ const btnStyle: React.CSSProperties = {
   border: "1px solid #ccc", borderRadius: 4, background: "#f5f5f5",
 };
 
+/** Props for the BayModal component. */
 type BayModalProps = {
   open: boolean;
+  /** All bay configs across all outlets, used to populate the list view. */
   bayConfigs: BayConfig[];
+  /** The outlet to pre-select when creating a new bay. */
   defaultOutlet: Outlet;
   onClose: () => void;
   onSave: (config: BayConfig) => void;
   onDelete: (id: string) => void;
   onDuplicate: (config: BayConfig) => void;
+  /** Called after the user drag-reorders bays within a single outlet. */
   onReorder: (outlet: Outlet, orderedIds: string[]) => void;
 };
 
+/**
+ * Full-screen overlay modal for managing bays: lists all bays grouped by outlet with
+ * drag-to-reorder, and provides a form view for creating or editing a single bay.
+ */
 function BayModal({ open, bayConfigs, defaultOutlet, onClose, onSave, onDelete, onDuplicate, onReorder }: BayModalProps) {
   const [view, setView] = useState<"list" | "form">("list");
   const [editing, setEditing] = useState<BayConfig | null>(null);
@@ -244,6 +353,7 @@ function BayModal({ open, bayConfigs, defaultOutlet, onClose, onSave, onDelete, 
 
   useEffect(() => { if (open) setView("list"); }, [open]);
 
+  /** Resets the form to defaults and switches to the bay creation form view. */
   function startNew() {
     setEditing(null);
     setFormOutlet(defaultOutlet);
@@ -253,6 +363,7 @@ function BayModal({ open, bayConfigs, defaultOutlet, onClose, onSave, onDelete, 
     setView("form");
   }
 
+  /** Populates the form with an existing bay's values and switches to the edit form view. */
   function startEdit(config: BayConfig) {
     setEditing(config);
     setFormOutlet(config.outlet);
@@ -262,6 +373,7 @@ function BayModal({ open, bayConfigs, defaultOutlet, onClose, onSave, onDelete, 
     setView("form");
   }
 
+  /** Collects the current form values into a BayConfig and delegates to `onSave`. */
   function handleSave() {
     onSave({
       id: editing?.id ?? "",
@@ -399,87 +511,9 @@ function BayModal({ open, bayConfigs, defaultOutlet, onClose, onSave, onDelete, 
   );
 }
 
-// --- PDF export ---
-
-async function exportPdf(
-  planogram: PlanogramMeta,
-  outlet: Outlet,
-  bays: BayConfig[],
-  layouts: Record<string, BayLayout>,
-  exportedAt: number,
-) {
-  const { jsPDF } = await import("jspdf");
-  const html2canvas = (await import("html2canvas")).default;
-
-  const outletBays = bays.filter((b) => b.outlet === outlet);
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageW = 210;
-  const marginX = 15;
-  const usableW = pageW - marginX * 2;
-
-  const d = new Date(exportedAt);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const dateStr = `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-
-  for (let i = 0; i < outletBays.length; i++) {
-    const bay = outletBays[i];
-    if (i > 0) doc.addPage();
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.setTextColor(0);
-    doc.text(planogram.name, marginX, 13);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(100);
-    doc.text(`Exported ${dateStr}`, marginX, 19);
-
-    doc.setDrawColor(0);
-    doc.setLineWidth(0.4);
-    doc.line(marginX, 23, pageW - marginX, 23);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor(0);
-    doc.text(`${outlet} · ${bay.name || "Bay"}`, marginX, 34);
-
-    const container = document.createElement("div");
-    container.style.cssText = "position:absolute;left:-9999px;top:0;background:#fff;padding:8px";
-    document.body.appendChild(container);
-
-    const { createRoot } = await import("react-dom/client");
-    const ReactModule = await import("react");
-    const root = createRoot(container);
-    await new Promise<void>((resolve) => {
-      root.render(ReactModule.createElement(PrintBay, { layout: layouts[bay.id] ?? [], shelves: bay.shelves }));
-      setTimeout(resolve, 150);
-    });
-
-    const canvas = await html2canvas(container, { scale: 2, backgroundColor: "#fff", useCORS: true });
-    root.unmount();
-    document.body.removeChild(container);
-
-    const imgData = canvas.toDataURL("image/png");
-    const imgH = (canvas.height / canvas.width) * usableW;
-    doc.addImage(imgData, "PNG", marginX, 40, usableW, imgH);
-  }
-
-  const total = doc.getNumberOfPages();
-  for (let p = 1; p <= total; p++) {
-    doc.setPage(p);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(150);
-    doc.text(`${p} / ${total}`, pageW - marginX, 287, { align: "right" });
-  }
-
-  const safeName = planogram.name.replace(/[^a-z0-9]/gi, "_");
-  doc.save(`${safeName}-${outlet}-${dateStr.replace(/[: ]/g, "-")}.pdf`);
-}
-
 // --- Page ---
 
+/** Planogram editor page: drag-and-drop bay/shelf layout editor with PDF export and API persistence. */
 export default function Page() {
   const { id: planogramId } = useParams<{ id: string }>();
   const router = useRouter();
@@ -491,7 +525,7 @@ export default function Page() {
   const [bayModalOpen, setBayModalOpen] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [saveAsDialog, setSaveAsDialog] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const [products, setProducts] = useState<Item[]>([]);
   const [listMode, setListMode] = useState<"all" | "unplaced">("unplaced");
@@ -499,6 +533,7 @@ export default function Page() {
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
   const pointerXRef = useRef(0);
+  const [dragItem, setDragItem] = useState<DraggableData | null>(null);
 
   // pointer tracking for drop-side detection
   useEffect(() => {
@@ -568,7 +603,18 @@ export default function Page() {
   const visibleProducts = listedProducts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   // drag
+  /** Records the dragged item in state so the DragOverlay can render a preview. */
+  function handleDragStart(event: any) {
+    setDragItem(event.operation.source.data as DraggableData);
+  }
+
+  /**
+   * Commits a drop: removes the item from its source slot (if dragged from a slot),
+   * determines the drop side from the current pointer X position relative to the
+   * target slot's bounding rect, and calls `insertOnShelf` to update the layout.
+   */
   function handleDragEnd(event: any) {
+    setDragItem(null);
     if (event.canceled || !event.operation.target || !activeBayId) return;
     const sourceData = event.operation.source.data as DraggableData;
     const target = event.operation.target.data as { shelf: number; slot: number };
@@ -590,6 +636,11 @@ export default function Page() {
   }
 
   // bay CRUD
+  /**
+   * Creates or updates a bay via the API.  For new bays, an empty layout is
+   * initialised and the new bay becomes the active selection.  For existing bays,
+   * the layout is reconciled with the updated shelf configuration via `reconcileLayout`.
+   */
   async function handleSaveBay(config: BayConfig) {
     const isNew = !config.id;
     const body = configToApiBay(config);
@@ -617,6 +668,10 @@ export default function Page() {
     }
   }
 
+  /**
+   * Creates a copy of a bay via the API with a unique name generated by `nextCopyName`.
+   * The duplicate starts with an empty layout (placements are not copied).
+   */
   async function handleDuplicateBay(config: BayConfig) {
     const body = configToApiBay({ ...config, name: nextCopyName(config.name, bayConfigs) });
     const res = await fetch("/api/planogram/bays", {
@@ -629,6 +684,10 @@ export default function Page() {
     setBayLayouts((prev) => ({ ...prev, [created.id]: makeEmptyBayLayout(created.shelves) }));
   }
 
+  /**
+   * Persists a new bay display order for a single outlet via the API and updates
+   * local state, keeping bays from other outlets unchanged.
+   */
   async function handleReorderBays(o: Outlet, orderedIds: string[]) {
     await fetch("/api/planogram/bays/reorder", {
       method: "POST",
@@ -643,6 +702,10 @@ export default function Page() {
     });
   }
 
+  /**
+   * Deletes a bay via the API, removes it from state, and selects the next
+   * available bay for the current outlet (or clears the selection if none remain).
+   */
   async function handleDeleteBay(id: string) {
     await fetch(`/api/planogram/bays/${id}`, { method: "DELETE" });
     const remaining = bayConfigs.filter((b) => b.id !== id && b.outlet === outlet);
@@ -651,6 +714,7 @@ export default function Page() {
     setBayLayouts((prev) => { const next = { ...prev }; delete next[id]; return next; });
   }
 
+  /** Clears a single slot in the active bay layout and marks the planogram as dirty. */
   function handleRemoveItem(shelf: number, slot: number) {
     if (!activeBayId) return;
     const next = activeBayLayout.map((s, si) => s.map((cell, sli) => (si === shelf && sli === slot ? null : cell)));
@@ -658,6 +722,7 @@ export default function Page() {
     setIsDirty(true);
   }
 
+  /** Persists all current bay layouts to the API as a flat list of placements and clears the dirty flag. */
   async function handleSave() {
     await fetch(`/api/planogram/planograms/${planogramId}/save`, {
       method: "POST",
@@ -667,6 +732,10 @@ export default function Page() {
     setIsDirty(false);
   }
 
+  /**
+   * Creates a new planogram with the given name, saves the current placements to it,
+   * and navigates to the new planogram's editor URL.
+   */
   async function handleSaveAs(name: string) {
     const res = await fetch("/api/planogram/planograms", {
       method: "POST",
@@ -683,6 +752,7 @@ export default function Page() {
     router.push(`/planogram/${created.id}`);
   }
 
+  /** Transitions the planogram status to "active" via the API and updates local metadata. */
   async function handleActivate() {
     const updated: PlanogramMeta = await fetch(
       `/api/planogram/planograms/${planogramId}/activate`,
@@ -691,12 +761,124 @@ export default function Page() {
     setPlanogram(updated);
   }
 
+  /**
+   * Dynamically imports `@react-pdf/renderer`, renders a PDF document with one page
+   * per bay (each showing all shelves and their bottle illustrations), converts it to
+   * a Blob, and triggers a browser download.  The import is deferred to avoid bundling
+   * the large PDF renderer on initial page load.
+   */
+  async function handleExportPdf() {
+    if (!planogram) return;
+    const plan = planogram;
+    setIsDownloading(true);
+    try {
+      const { Document, Page, View, Text, StyleSheet, pdf } = await import("@react-pdf/renderer");
+
+      const styles = StyleSheet.create({
+        page: { padding: 24, fontFamily: "Helvetica", flexDirection: "column" },
+        header: { borderBottomWidth: 2, borderBottomColor: NAVY, borderBottomStyle: "solid", paddingBottom: 8, marginBottom: 14 },
+        headerTitle: { fontSize: 18, fontWeight: "bold", color: "#111" },
+        headerMeta: { fontSize: 9, color: "#555", marginTop: 3 },
+        shelfRow: { marginBottom: 2 },
+        shelfSlots: { flexDirection: "row", alignItems: "flex-start" },
+        shelfNum: { width: 14, fontSize: 7, color: "#888", textAlign: "center", paddingTop: 4 },
+        shelfBar: { height: 5, backgroundColor: NAVY, marginBottom: 3 },
+        slot: { flexDirection: "column", alignItems: "center", borderWidth: 0.5, borderColor: "#ddd", borderStyle: "solid", padding: 2, marginRight: 1.5 },
+        emptySlot: { borderColor: "#eee", justifyContent: "center", alignItems: "center" },
+        slotName: { fontSize: 5.5, fontWeight: "bold", textAlign: "center", marginTop: 3, color: "#111" },
+        slotSku: { fontSize: 5, color: "#666", textAlign: "center", marginTop: 1 },
+        footer: { position: "absolute", bottom: 20, left: 24, right: 24, flexDirection: "row", justifyContent: "space-between", borderTopWidth: 0.5, borderTopColor: "#ddd", borderTopStyle: "solid", paddingTop: 4 },
+        footerText: { fontSize: 7.5, color: "#888" },
+      });
+
+      const d = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const dateStr = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const outletLabel = outlet.charAt(0).toUpperCase() + outlet.slice(1);
+
+      function PlanogramPdfDoc() {
+        return (
+          <Document>
+            {outletBays.map((bay) => {
+              const layout = bayLayouts[bay.id] ?? [];
+              const maxSlots = Math.max(...bay.shelves, 1);
+              const slotW = Math.min(80, (547 - 14) / maxSlots);
+              const slotH = 110;
+              const bottleW = slotW * 0.4;
+              const neckW = bottleW * 0.42;
+              const neckH = slotH * 0.15;
+              const bodyH = slotH * 0.42;
+
+              return (
+                <Page key={bay.id} size="A4" style={styles.page}>
+                  <View style={styles.header}>
+                    <Text style={styles.headerTitle}>{plan.name}</Text>
+                    <Text style={styles.headerMeta}>
+                      {outletLabel} · {bay.name || "Bay"} · {bay.shelves.length} shelves · Exported {dateStr}
+                    </Text>
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    {bay.shelves.map((slotCount, si) => {
+                      const slots = layout[si] ?? [];
+                      return (
+                        <View key={si} style={styles.shelfRow}>
+                          <View style={styles.shelfSlots}>
+                            <Text style={styles.shelfNum}>{si + 1}</Text>
+                            {Array.from({ length: slotCount }, (_, sli) => {
+                              const item = slots[sli] ?? null;
+                              const color = item ? wineColor(item.tags) : "#eee";
+                              return (
+                                <View key={sli} style={[styles.slot, ...(!item ? [styles.emptySlot] : []), { width: slotW, height: slotH }]}>
+                                  {item ? (
+                                    <>
+                                      <View style={{ width: neckW, height: neckH, backgroundColor: color, alignSelf: "center", marginTop: 4 }} />
+                                      <View style={{ width: bottleW, height: bodyH, backgroundColor: color, alignSelf: "center" }} />
+                                      <Text style={styles.slotName}>{item.name}</Text>
+                                      <Text style={styles.slotSku}>{item.sku}</Text>
+                                    </>
+                                  ) : (
+                                    <Text style={{ fontSize: 7, color: "#ccc", textAlign: "center" }}>{sli + 1}</Text>
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                          <View style={[styles.shelfBar, { width: 14 + slotCount * (slotW + 1.5) }]} />
+                        </View>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.footer} fixed>
+                    <Text style={styles.footerText}>{plan.name} · {outletLabel} · {bay.name || "Bay"}</Text>
+                    <Text style={styles.footerText} render={({ pageNumber, totalPages }: { pageNumber: number; totalPages: number }) => `${pageNumber} / ${totalPages}`} />
+                  </View>
+                </Page>
+              );
+            })}
+          </Document>
+        );
+      }
+
+      const blob = await pdf(<PlanogramPdfDoc />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${plan.name.replace(/[^a-z0-9]/gi, "_")}-${outlet}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
   const statusColor = (s: string) =>
     s === "active" ? "#2a7" : s === "archived" ? "#999" : "#e90";
 
   return (
     <>
-      <DragDropProvider onDragEnd={handleDragEnd}>
+      <DragDropProvider onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div style={{ padding: 16 }}>
           {/* toolbar */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -718,17 +900,8 @@ export default function Page() {
                 Activate
               </button>
             )}
-            <button
-              onClick={async () => {
-                if (!planogram) return;
-                setIsExporting(true);
-                await exportPdf(planogram, outlet, bayConfigs, bayLayouts, Date.now());
-                setIsExporting(false);
-              }}
-              disabled={isExporting}
-              style={{ ...btnStyle, marginLeft: 4 }}
-            >
-              {isExporting ? "Exporting…" : "Export PDF"}
+            <button onClick={handleExportPdf} disabled={isDownloading} style={{ ...btnStyle, marginLeft: 4 }}>
+              {isDownloading ? "Generating…" : "Export PDF"}
             </button>
           </div>
 
@@ -818,7 +991,20 @@ export default function Page() {
           </div>
         </div>
         <DragOverlay>
-          {() => <WineBottle style={{ width: 40, height: 120, opacity: 0.8 }} />}
+          {() => dragItem ? (
+            <div style={{
+              width: 90, height: 220, border: "1px solid #ccc", background: "#fff",
+              display: "flex", flexDirection: "column", alignItems: "center",
+              padding: 4, boxSizing: "border-box", opacity: 0.85,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+            }}>
+              <WineBottle color={wineColor(dragItem.tags)} style={{ width: 40, height: 100, display: "block", marginTop: 4 }} />
+              <div style={{ marginTop: 6, width: "100%", textAlign: "center", padding: "0 3px", boxSizing: "border-box" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.3, wordBreak: "break-word" }}>{dragItem.name}</div>
+                <div style={{ fontSize: 10, color: "#666", marginTop: 3, wordBreak: "break-word" }}>{dragItem.sku}</div>
+              </div>
+            </div>
+          ) : null}
         </DragOverlay>
       </DragDropProvider>
 
@@ -847,6 +1033,7 @@ export default function Page() {
 
 // --- WineBottle ---
 
+/** SVG wine bottle illustration with a fill colour determined by wine type. */
 const WineBottle = React.forwardRef<SVGSVGElement, { color?: string; style?: React.CSSProperties }>(
   ({ color = "#2D5A27", style }, ref) => (
     <svg ref={ref} viewBox="0 0 66.758 250" style={style} xmlns="http://www.w3.org/2000/svg">
@@ -864,46 +1051,14 @@ const WineBottle = React.forwardRef<SVGSVGElement, { color?: string; style?: Rea
 );
 WineBottle.displayName = "WineBottle";
 
-// --- Print ---
-
-function PrintBay({ layout, shelves }: { layout: BayLayout; shelves: number[] }) {
-  return (
-    <div style={{ display: "inline-flex", flexDirection: "column", border: `8px solid ${NAVY}`, padding: 4 }}>
-      {shelves.map((_, i) => (
-        <div key={i} style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "center", borderBottom: `12px solid ${NAVY}`, paddingBottom: 4, marginBottom: 4 }}>
-          <p style={{ textAlign: "center", width: 20, margin: 0, fontSize: 11 }}>{i + 1}</p>
-          {(layout[i] ?? []).map((item, j) => (
-            <div
-              key={j}
-              style={{
-                width: 80, height: 180,
-                border: item ? "1px solid #ddd" : "1px solid #eee",
-                display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "flex-end",
-                padding: "4px 2px", boxSizing: "border-box",
-              }}
-            >
-              {item && (
-                <>
-                  <WineBottle color={wineColor(item.tags)} style={{ width: 30, height: 90, flexShrink: 0 }} />
-                  <div style={{ textAlign: "center", marginTop: 4, width: "100%" }}>
-                    <div style={{ fontSize: 9, lineHeight: 1.2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-                      {item.name}
-                    </div>
-                    <div style={{ fontSize: 9, color: "#666", marginTop: 2 }}>{item.sku}</div>
-                  </div>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // --- DnD components ---
 
+/**
+ * Sidebar list entry for a single wine product.
+ * Renders a small bottle icon and product name/SKU; the item is non-draggable
+ * and rendered at reduced opacity when it is already placed in the active bay.
+ */
 function DraggableItem({ item, placed }: { item: Item; placed: boolean }) {
   const { ref } = useDraggable({
     id: item.id,
@@ -921,6 +1076,7 @@ function DraggableItem({ item, placed }: { item: Item; placed: boolean }) {
   );
 }
 
+/** Renders a complete bay as a column of Shelf rows with a navy border frame. */
 function Bay({ layout, shelves, onRemove }: { layout: BayLayout; shelves: number[]; onRemove: (shelf: number, slot: number) => void }) {
   return (
     <div style={{ display: "inline-flex", flexDirection: "column", border: `8px solid ${NAVY}`, padding: 4 }}>
@@ -931,6 +1087,7 @@ function Bay({ layout, shelves, onRemove }: { layout: BayLayout; shelves: number
   );
 }
 
+/** Renders a single shelf row as a horizontal sequence of Slot components with a navy bottom bar. */
 function Shelf({ slots, index, onRemove }: { slots: (Item | null)[]; index: number; onRemove: (shelf: number, slot: number) => void }) {
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "center", borderBottom: `12px solid ${NAVY}`, paddingBottom: 4, marginBottom: 4 }}>
@@ -942,6 +1099,11 @@ function Shelf({ slots, index, onRemove }: { slots: (Item | null)[]; index: numb
   );
 }
 
+/**
+ * A single droppable (and, when occupied, draggable) slot cell within a shelf.
+ * An occupied slot shows a WineBottle illustration and a hover-activated remove button.
+ * An empty slot shows only its slot number as a placeholder.
+ */
 function Slot({ item, index, shelfIndex, onRemove }: { item: Item | null; index: number; shelfIndex: number; onRemove: (shelf: number, slot: number) => void }) {
   const [hovered, setHovered] = useState(false);
   const dndId = `${shelfIndex}-${index}`;
@@ -959,10 +1121,10 @@ function Slot({ item, index, shelfIndex, onRemove }: { item: Item | null; index:
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        position: "relative", width: 80, flexShrink: 0, height: 180,
+        position: "relative", width: 90, flexShrink: 0, height: 220,
         border: "1px dashed gray", display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "flex-end",
-        padding: "4px 2px", boxSizing: "border-box",
+        alignItems: "center", justifyContent: "flex-start",
+        padding: "4px", boxSizing: "border-box",
       }}
     >
       {item ? (
@@ -973,16 +1135,18 @@ function Slot({ item, index, shelfIndex, onRemove }: { item: Item | null; index:
               style={{ position: "absolute", top: 2, right: 2, width: 16, height: 16, padding: 0, lineHeight: 1, fontSize: 11, cursor: "pointer", border: "none", borderRadius: 2, background: "#e55", color: "#fff" }}
             >×</button>
           )}
-          <WineBottle ref={dragRef} color={wineColor(item.tags)} style={{ width: 30, height: 90, cursor: "grab", flexShrink: 0 }} />
-          <div style={{ textAlign: "center", marginTop: 4, width: "100%" }} title={item.name}>
-            <div style={{ fontSize: 9, lineHeight: 1.2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
-              {item.name}
+          <div ref={dragRef} style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "grab", width: "100%" }} title={item.name}>
+            <WineBottle color={wineColor(item.tags)} style={{ width: 40, height: 100, display: "block", marginTop: 4 }} />
+            <div style={{ marginTop: 6, width: "100%", textAlign: "center", padding: "0 3px", boxSizing: "border-box" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.3, wordBreak: "break-word" }}>
+                {item.name}
+              </div>
+              <div style={{ fontSize: 10, color: "#666", marginTop: 3, wordBreak: "break-word" }}>{item.sku}</div>
             </div>
-            <div style={{ fontSize: 9, color: "#888", marginTop: 2 }}>{item.sku}</div>
           </div>
         </>
       ) : (
-        <p style={{ margin: 0, fontSize: 11, color: "#ccc" }}>{index + 1}</p>
+        <p style={{ margin: "auto", fontSize: 11, color: "#ccc" }}>{index + 1}</p>
       )}
     </div>
   );

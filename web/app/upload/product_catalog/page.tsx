@@ -11,8 +11,16 @@ import {
 } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 
+/** Tracks whether a file is currently being transferred to the server or being processed by dbt. */
 type Phase = "uploading" | "processing" | null;
 
+/**
+ * POSTs a FormData payload via XHR, invoking a callback with upload progress percentage.
+ * @param url - Endpoint to POST to.
+ * @param form - Multipart form data to send.
+ * @param onProgress - Called with a 0–100 integer as bytes are transmitted.
+ * @returns Resolved with the response status and raw response text.
+ */
 function uploadWithProgress(
   url: string,
   form: FormData,
@@ -30,6 +38,7 @@ function uploadWithProgress(
   });
 }
 
+/** Page for uploading a Lightspeed product export CSV, which triggers a dbt rebuild on the server. */
 export default function ProductCatalogUploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);

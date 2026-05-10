@@ -5,10 +5,17 @@ import { AuthError } from "next-auth";
 import bcrypt from "bcryptjs";
 import ChangePasswordForm from "./ChangePasswordForm";
 
+/** Settings page that renders the change-password form for the currently authenticated user. */
 export default async function SettingsPage() {
   const session = await auth();
   const userId = session?.user?.id;
 
+  /**
+   * Server action that validates and applies a password change for the current user.
+   * @param _ - Previous action state (unused).
+   * @param formData - Form data with `current`, `new`, and `confirm` password fields.
+   * @returns `"ok"` on success, an error message string on failure.
+   */
   async function changePassword(_: string | null, formData: FormData): Promise<string | null> {
     "use server";
     const current = formData.get("current") as string;

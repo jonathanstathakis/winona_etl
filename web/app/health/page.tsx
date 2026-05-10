@@ -15,25 +15,41 @@ import {
   Typography,
 } from "@mui/material";
 
+/** Metadata for a single product catalog export snapshot stored in the warehouse. */
 interface ProductExport {
+  /** Unix timestamp (seconds) of when the export was ingested. */
   export_timestamp: number;
 }
 
+/** Sale date coverage summary for one outlet as returned by the data-health endpoint. */
 interface SaleHistoryOutlet {
   outlet: string;
+  /** ISO date of the oldest sale record for this outlet. */
   earliest_sale: string;
+  /** ISO date of the most recent sale record for this outlet. */
   latest_sale: string;
 }
 
+/** Top-level response shape from the /api/mart/data-health endpoint. */
 interface HealthData {
   product_exports: ProductExport[];
   sale_history_by_outlet: SaleHistoryOutlet[];
 }
 
+/**
+ * Converts a Unix timestamp in seconds to a locale-formatted datetime string.
+ * @param unix - Unix timestamp in seconds.
+ * @returns Locale-formatted datetime string.
+ */
 function fmtTs(unix: number): string {
   return new Date(unix * 1000).toLocaleString();
 }
 
+/**
+ * Formats an ISO date string as a human-readable "Mon D, YYYY" string.
+ * @param iso - ISO 8601 date string.
+ * @returns Locale-formatted short date string.
+ */
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
     year: "numeric",
@@ -42,6 +58,7 @@ function fmtDate(iso: string): string {
   });
 }
 
+/** Page displaying warehouse data health: product export history and sale coverage per outlet. */
 export default function HealthPage() {
   const [data, setData] = useState<HealthData | null>(null);
   const [loading, setLoading] = useState(true);

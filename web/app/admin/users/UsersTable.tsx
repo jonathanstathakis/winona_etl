@@ -23,15 +23,18 @@ import {
 } from "@mui/material";
 import type { Role } from "@/lib/users";
 
+/** A user record returned by the admin users API. */
 interface User {
   id: string;
   username: string;
   role: Role;
+  /** ISO 8601 timestamp string of when the account was created. */
   created_at: string;
 }
 
 const ROLES: Role[] = ["viewer", "admin", "superuser"];
 
+/** Interactive table for managing users — supports adding, deleting, and changing roles. */
 export default function UsersTable({ initialUsers }: { initialUsers: User[] }) {
   const [users, setUsers] = useState<User[]>(initialUsers);
   const [error, setError] = useState<string | null>(null);
@@ -41,11 +44,17 @@ export default function UsersTable({ initialUsers }: { initialUsers: User[] }) {
   const [newRole, setNewRole] = useState<Role>("viewer");
   const [adding, setAdding] = useState(false);
 
+  /** Fetches the current user list from the API and refreshes local state. */
   async function reload() {
     const res = await fetch("/api/admin/users");
     if (res.ok) setUsers(await res.json());
   }
 
+  /**
+   * Prompts for confirmation then deletes a user via the API.
+   * @param id - The user's unique identifier.
+   * @param username - The username shown in the confirmation prompt.
+   */
   async function handleDelete(id: string, username: string) {
     if (!confirm(`Delete user '${username}'?`)) return;
     const res = await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
@@ -53,6 +62,11 @@ export default function UsersTable({ initialUsers }: { initialUsers: User[] }) {
     setUsers((u) => u.filter((x) => x.id !== id));
   }
 
+  /**
+   * Patches a user's role via the API and updates local state on success.
+   * @param id - The user's unique identifier.
+   * @param role - The new role to assign.
+   */
   async function handleRoleChange(id: string, role: Role) {
     const res = await fetch(`/api/admin/users/${id}`, {
       method: "PATCH",
@@ -63,6 +77,7 @@ export default function UsersTable({ initialUsers }: { initialUsers: User[] }) {
     setUsers((u) => u.map((x) => x.id === id ? { ...x, role } : x));
   }
 
+  /** Submits the new-user form to the API and reloads the user list on success. */
   async function handleAdd() {
     if (!newUsername || !newPassword) return;
     setAdding(true);

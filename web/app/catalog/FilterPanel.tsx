@@ -18,6 +18,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import { GridColDef } from "@mui/x-data-grid";
 
+/** Column value type used to select the appropriate operator set. */
 type ColType = "string" | "number";
 
 const STRING_OPS = [
@@ -42,40 +43,63 @@ const NUMBER_OPS = [
   { value: "is_not_empty", label: "is not empty" },
 ] as const;
 
+/** Union of all valid string-column filter operator values. */
 type StringOp = (typeof STRING_OPS)[number]["value"];
+/** Union of all valid number-column filter operator values. */
 type NumberOp = (typeof NUMBER_OPS)[number]["value"];
+/** Union of all filter operators supported across string and number columns. */
 export type FilterOp = StringOp | NumberOp;
+/** Boolean combinator applied between consecutive filter rows. */
 export type LogicOperator = "and" | "or";
 
+/** Represents a single filter rule in the filter panel. */
 export interface FilterItem {
+  /** Stable unique identifier used as a React key and for targeted updates. */
   id: string;
+  /** Field name of the column being filtered. */
   column: string;
   operator: FilterOp;
+  /** Raw filter value entered by the user; ignored for no-value operators such as `is_empty`. */
   value: string;
+  /** How this row is combined with the preceding filter row. */
   logic: LogicOperator;
 }
 
+/** Operators that do not require a user-supplied value field. */
 const NO_VALUE_OPS = new Set<FilterOp>(["is_empty", "is_not_empty"]);
 
+/**
+ * Returns the default filter operator for a given column type.
+ * @param colType - The column's value type.
+ * @returns The default operator string for that type.
+ */
 function defaultOp(colType: ColType): FilterOp {
   return colType === "number" ? "eq" : "contains";
 }
 
+/**
+ * Returns the operator list appropriate for a given column type.
+ * @param colType - The column's value type.
+ * @returns The operator descriptor array for that type.
+ */
 function opsForType(colType: ColType) {
   return colType === "number" ? NUMBER_OPS : STRING_OPS;
 }
 
 let _id = 0;
+/** Returns a new unique filter row ID using a module-level counter. */
 export function nextFilterId() {
   return String(++_id);
 }
 
+/** Props for the FilterPanel component. */
 interface Props {
   columns: GridColDef[];
   items: FilterItem[];
   onChange: (items: FilterItem[]) => void;
 }
 
+/** Interactive panel for building a list of column filter rules with drag-to-reorder support. */
 export function FilterPanel({ columns, items, onChange }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -210,6 +234,12 @@ export function FilterPanel({ columns, items, onChange }: Props) {
   );
 }
 
+/**
+ * Filters a row array by applying each FilterItem rule, respecting AND/OR logic between rows.
+ * @param rows - The full dataset to filter.
+ * @param items - Ordered list of filter rules to apply.
+ * @returns The subset of rows that satisfy the combined filter expression.
+ */
 export function applyColumnFilters(
   rows: Record<string, unknown>[],
   items: FilterItem[],
@@ -225,6 +255,12 @@ export function applyColumnFilters(
   });
 }
 
+/**
+ * Tests whether a single row satisfies a single filter rule.
+ * @param row - The data row to test.
+ * @param item - The filter rule to evaluate against the row.
+ * @returns `true` if the row's column value matches the rule.
+ */
 function matchesFilter(row: Record<string, unknown>, item: FilterItem): boolean {
   const raw = row[item.column];
 

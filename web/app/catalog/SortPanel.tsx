@@ -17,25 +17,32 @@ import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import { GridColDef } from "@mui/x-data-grid";
 
+/** Sort order applied to a column. */
 export type SortDirection = "asc" | "desc";
 
+/** Represents a single sort rule in the sort panel. */
 export interface SortItem {
+  /** Stable unique identifier used as a React key and for targeted updates. */
   id: string;
+  /** Field name of the column to sort by. */
   column: string;
   direction: SortDirection;
 }
 
 let _id = 0;
+/** Returns a new unique sort row ID using a module-level counter. */
 export function nextSortId() {
   return `s${++_id}`;
 }
 
+/** Props for the SortPanel component. */
 interface Props {
   columns: GridColDef[];
   items: SortItem[];
   onChange: (items: SortItem[]) => void;
 }
 
+/** Interactive panel for building a prioritised list of column sort rules with drag-to-reorder support. */
 export function SortPanel({ columns, items, onChange }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -124,6 +131,12 @@ export function SortPanel({ columns, items, onChange }: Props) {
   );
 }
 
+/**
+ * Sorts a row array by applying each SortItem rule in priority order.
+ * @param rows - The dataset to sort; the original array is not mutated.
+ * @param items - Ordered list of sort rules, applied left-to-right as tiebreakers.
+ * @returns A new sorted array.
+ */
 export function applySort(
   rows: Record<string, unknown>[],
   items: SortItem[],

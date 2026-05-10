@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Alert, CircularProgress, Typography } from "@mui/material";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 
+/** Column definitions for the wine DataGrid, mapping mart_wine_curr fields to display properties. */
 const COLUMNS: GridColDef[] = [
   { field: "name", headerName: "Name", width: 240 },
   { field: "sku", headerName: "SKU", width: 160 },
@@ -12,6 +13,7 @@ const COLUMNS: GridColDef[] = [
   { field: "tags", headerName: "Tags", width: 300 },
 ];
 
+/** A single row from the mart_wine_curr view representing a wine product. */
 interface WineItem {
   id: string;
   name: string;
@@ -22,6 +24,7 @@ interface WineItem {
   tags: string;
 }
 
+/** Page displaying the wine product subset from mart_wine_curr in a paginated DataGrid. */
 export default function WinePage() {
   const [rows, setRows] = useState<WineItem[]>([]);
   const [loading, setLoading] = useState(true);

@@ -22,28 +22,52 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 
 const OUTLETS = ["rozelle", "avalon", "manly"];
 
+/** Represents each stage of the upload workflow from file selection through server commit. */
 type Step = "idle" | "previewing" | "preview_ready" | "committing" | "success";
 
+/** Preview summary returned by the server before a sales history upload is committed. */
 interface PreviewData {
+  /** ISO datetime of the earliest sale in the uploaded file. */
   file_min: string | null;
+  /** ISO datetime of the latest sale in the uploaded file. */
   file_max: string | null;
+  /** Total number of sale rows in the file. */
   row_count: number;
+  /** ISO datetime of the earliest existing sale for the outlet in the warehouse. */
   existing_min: string | null;
+  /** ISO datetime of the latest existing sale for the outlet in the warehouse. */
   existing_max: string | null;
+  /** Number of distinct timestamps in the file that already exist in the warehouse. */
   duplicate_count: number;
+  /** Number of individual rows affected by duplicate timestamps. */
   duplicate_rows: number;
 }
 
+/** Date range of sales already stored in the warehouse for a single outlet. */
 interface OutletCoverage {
+  /** ISO datetime of the earliest sale on record for the outlet. */
   existing_min: string | null;
+  /** ISO datetime of the most recent sale on record for the outlet. */
   existing_max: string | null;
 }
 
+/**
+ * Formats an ISO datetime string for display, returning an em-dash when the value is absent.
+ * @param iso - ISO 8601 datetime string or null.
+ * @returns Locale-formatted datetime string, or "—" if null.
+ */
 function fmtDt(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString();
 }
 
+/**
+ * POSTs a FormData payload via XHR, invoking a callback with upload progress percentage.
+ * @param url - Endpoint to POST to.
+ * @param form - Multipart form data to send.
+ * @param onProgress - Called with a 0–100 integer as bytes are transmitted.
+ * @returns Resolved with the response status and raw response text.
+ */
 function uploadWithProgress(
   url: string,
   form: FormData,
@@ -61,6 +85,7 @@ function uploadWithProgress(
   });
 }
 
+/** Page for uploading a Lightspeed sales history CSV with duplicate detection and outlet selection. */
 export default function SalesHistoryUploadPage() {
   const [outlet, setOutlet] = useState("rozelle");
   const [coverage, setCoverage] = useState<OutletCoverage | null>(null);
@@ -90,6 +115,10 @@ export default function SalesHistoryUploadPage() {
       .finally(() => setCoverageLoading(false));
   }, [outlet]);
 
+  /**
+   * Sends the selected file to the preview endpoint and advances the workflow to `preview_ready`.
+   * @param f - The CSV file chosen by the user.
+   */
   async function handleFileChange(f: File) {
     setFile(f);
     setPreview(null);
@@ -114,6 +143,7 @@ export default function SalesHistoryUploadPage() {
     }
   }
 
+  /** Commits the previewed file to the server, optionally stripping duplicate rows before insertion. */
   async function handleConfirm() {
     if (!file) return;
     setCommitError(null);
@@ -141,6 +171,7 @@ export default function SalesHistoryUploadPage() {
     }
   }
 
+  /** Resets all form state back to `idle` so the user can start a fresh upload. */
   function handleReset() {
     setFile(null);
     setPreview(null);
@@ -150,6 +181,10 @@ export default function SalesHistoryUploadPage() {
     setStep("idle");
   }
 
+  /**
+   * Updates the selected outlet and re-runs the file preview when a file is already chosen.
+   * @param newOutlet - The outlet name selected by the user.
+   */
   function handleOutletChange(newOutlet: string) {
     setOutlet(newOutlet);
     if (file) handleFileChange(file);

@@ -11,10 +11,16 @@ import {
   Typography,
 } from "@mui/material";
 
+/** Props for the LoginForm component. */
 interface Props {
+  /**
+   * Server action used as the form's `useActionState` handler; returns an error
+   * string on failure or null on success.
+   */
   action: (_: string | null, formData: FormData) => Promise<string | null>;
 }
 
+/** Credential login form that displays an error alert on failed sign-in attempts. */
 export default function LoginForm({ action }: Props) {
   const [error, formAction, pending] = useActionState(action, null);
 
