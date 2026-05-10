@@ -772,22 +772,52 @@ export default function Page() {
     const plan = planogram;
     setIsDownloading(true);
     try {
-      const { Document, Page, View, Text, StyleSheet, pdf } = await import("@react-pdf/renderer");
+      const { Document, Page, View, Text, StyleSheet, pdf, Svg, G, Path, Rect: PdfRect } = await import("@react-pdf/renderer");
+
+      const PAD = 24;
+      const HEADER_H = 60;
+      const FOOTER_H = 28;
+      const SLOT_GAP = 1.5;
+      const SHELF_BAR = 5;
+      const SHELF_MARGIN = 3;
+
+      function bayFit(maxSlots: number, shelfCount: number) {
+        const naturalW = 14 + maxSlots * (90 + SLOT_GAP);
+        const naturalH = shelfCount * (220 + SHELF_BAR + SHELF_MARGIN);
+        function scaleFor(pageW: number, pageH: number) {
+          return Math.min(1, (pageW - PAD * 2) / naturalW, (pageH - PAD * 2 - HEADER_H - FOOTER_H) / naturalH);
+        }
+        const portrait = scaleFor(595, 842);
+        const landscape = scaleFor(842, 595);
+        return landscape > portrait
+          ? { orientation: "landscape" as const, scale: landscape }
+          : { orientation: "portrait" as const, scale: portrait };
+      }
+
+      function PdfWineBottle({ color, width, height }: { color: string; width: number; height: number }) {
+        return (
+          <Svg viewBox="0 0 66.758 250" style={{ width, height }}>
+            <G transform="translate(116.44,-602.98)">
+              <G transform="matrix(0.24737,0,0,0.24737,-176.37,598.08)">
+                <G transform="translate(96.975,36.365)">
+                  <PdfRect fill="white" x={322.86} y={403.79} width={80} height={560} />
+                  <PdfRect fill="white" x={277.14} y={26.648} width={45.714} height={234.29} />
+                  <Path fill={color} d={BOTTLE_PATH_D} />
+                </G>
+              </G>
+            </G>
+          </Svg>
+        );
+      }
 
       const styles = StyleSheet.create({
-        page: { padding: 24, fontFamily: "Helvetica", flexDirection: "column" },
+        page: { padding: PAD, fontFamily: "Helvetica", flexDirection: "column" },
         header: { borderBottomWidth: 2, borderBottomColor: NAVY, borderBottomStyle: "solid", paddingBottom: 8, marginBottom: 14 },
         headerTitle: { fontSize: 18, fontWeight: "bold", color: "#111" },
         headerMeta: { fontSize: 9, color: "#555", marginTop: 3 },
-        shelfRow: { marginBottom: 2 },
-        shelfSlots: { flexDirection: "row", alignItems: "flex-start" },
-        shelfNum: { width: 14, fontSize: 7, color: "#888", textAlign: "center", paddingTop: 4 },
-        shelfBar: { height: 5, backgroundColor: NAVY, marginBottom: 3 },
-        slot: { flexDirection: "column", alignItems: "center", borderWidth: 0.5, borderColor: "#ddd", borderStyle: "solid", padding: 2, marginRight: 1.5 },
+        slot: { flexDirection: "column", alignItems: "center", borderWidth: 0.5, borderColor: "#ddd", borderStyle: "solid", padding: 2 },
         emptySlot: { borderColor: "#eee", justifyContent: "center", alignItems: "center" },
-        slotName: { fontSize: 5.5, fontWeight: "bold", textAlign: "center", marginTop: 3, color: "#111" },
-        slotSku: { fontSize: 5, color: "#666", textAlign: "center", marginTop: 1 },
-        footer: { position: "absolute", bottom: 20, left: 24, right: 24, flexDirection: "row", justifyContent: "space-between", borderTopWidth: 0.5, borderTopColor: "#ddd", borderTopStyle: "solid", paddingTop: 4 },
+        footer: { position: "absolute", bottom: 20, left: PAD, right: PAD, flexDirection: "row", justifyContent: "space-between", borderTopWidth: 0.5, borderTopColor: "#ddd", borderTopStyle: "solid", paddingTop: 4 },
         footerText: { fontSize: 7.5, color: "#888" },
       });
 
@@ -802,49 +832,58 @@ export default function Page() {
             {outletBays.map((bay) => {
               const layout = bayLayouts[bay.id] ?? [];
               const maxSlots = Math.max(...bay.shelves, 1);
-              const slotW = Math.min(80, (547 - 14) / maxSlots);
-              const slotH = 110;
-              const bottleW = slotW * 0.4;
-              const neckW = bottleW * 0.42;
-              const neckH = slotH * 0.15;
-              const bodyH = slotH * 0.42;
+              const { orientation, scale } = bayFit(maxSlots, bay.shelves.length);
+              const slotW  = 90  * scale;
+              const slotH  = 220 * scale;
+              const btlW   = 40  * scale;
+              const btlH   = 100 * scale;
+              const gap    = SLOT_GAP * scale;
+              const barH   = SHELF_BAR * scale;
+              const labelW = 14 * scale;
+              const fs = { name: 11 * scale, sku: 10 * scale, num: 7 * scale, empty: 11 * scale };
 
               return (
-                <Page key={bay.id} size="A4" style={styles.page}>
-                  <View style={styles.header}>
-                    <Text style={styles.headerTitle}>{plan.name}</Text>
-                    <Text style={styles.headerMeta}>
-                      {outletLabel} · {bay.name || "Bay"} · {bay.shelves.length} shelves · Exported {dateStr}
-                    </Text>
+                <Page key={bay.id} size="A4" orientation={orientation} style={styles.page}>
+                  <View style={[styles.header, { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }]}>
+                    <View>
+                      <Text style={styles.headerTitle}>Planogram: {plan.name}</Text>
+                      <Text style={styles.headerMeta}>
+                        {outletLabel} · {bay.name || "Bay"} · {bay.shelves.length} shelves · Exported {dateStr}
+                      </Text>
+                    </View>
+                    <Text style={styles.headerTitle}>Winona Wine</Text>
                   </View>
 
                   <View style={{ flex: 1 }}>
                     {bay.shelves.map((slotCount, si) => {
                       const slots = layout[si] ?? [];
                       return (
-                        <View key={si} style={styles.shelfRow}>
-                          <View style={styles.shelfSlots}>
-                            <Text style={styles.shelfNum}>{si + 1}</Text>
+                        <View key={si} style={{ marginBottom: SHELF_MARGIN * scale }}>
+                          <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+                            <Text style={{ width: labelW, fontSize: fs.num, color: "#888", textAlign: "center", paddingTop: 4 }}>{si + 1}</Text>
                             {Array.from({ length: slotCount }, (_, sli) => {
                               const item = slots[sli] ?? null;
                               const color = item ? wineColor(item.tags) : "#eee";
                               return (
-                                <View key={sli} style={[styles.slot, ...(!item ? [styles.emptySlot] : []), { width: slotW, height: slotH }]}>
+                                <View key={sli} style={[styles.slot, ...(!item ? [styles.emptySlot] : []), { width: slotW, height: slotH, marginRight: gap }]}>
                                   {item ? (
                                     <>
-                                      <View style={{ width: neckW, height: neckH, backgroundColor: color, alignSelf: "center", marginTop: 4 }} />
-                                      <View style={{ width: bottleW, height: bodyH, backgroundColor: color, alignSelf: "center" }} />
-                                      <Text style={styles.slotName}>{item.name}</Text>
-                                      <Text style={styles.slotSku}>{item.sku}</Text>
+                                      <View style={{ marginTop: 4 * scale }}>
+                                        <PdfWineBottle color={color} width={btlW} height={btlH} />
+                                      </View>
+                                      <View style={{ marginTop: 6 * scale, width: "100%", paddingLeft: 3 * scale, paddingRight: 3 * scale }}>
+                                        <Text style={{ fontSize: fs.name, fontWeight: "bold", textAlign: "center", lineHeight: 1.3, color: "#111" }}>{item.name}</Text>
+                                        <Text style={{ fontSize: fs.sku, color: "#666", textAlign: "center", marginTop: 3 * scale }}>{item.sku}</Text>
+                                      </View>
                                     </>
                                   ) : (
-                                    <Text style={{ fontSize: 7, color: "#ccc", textAlign: "center" }}>{sli + 1}</Text>
+                                    <Text style={{ fontSize: fs.empty, color: "#ccc", textAlign: "center", margin: "auto" }}>{sli + 1}</Text>
                                   )}
                                 </View>
                               );
                             })}
                           </View>
-                          <View style={[styles.shelfBar, { width: 14 + slotCount * (slotW + 1.5) }]} />
+                          <View style={{ height: barH, backgroundColor: NAVY, width: labelW + slotCount * (slotW + gap) }} />
                         </View>
                       );
                     })}
@@ -1032,6 +1071,9 @@ export default function Page() {
 }
 
 // --- WineBottle ---
+
+const BOTTLE_PATH_D =
+  "m237.11-14.802c-2.0828 1.5833-3.2235 5.4484-3.6875 12.469-0.2329 3.5228-0.9539 7.0414-1.5938 7.8125-0.7091 0.85434-1.3578 7.0229-1.6562 15.813-0.414 12.191-0.2161 14.976 1.2187 18 0.7543 1.5895 1.1648 3.5781 1.2188 13.156l-6.83 188.74c0.48973 7.3004-1.2397 13.334-4.8704 19.598-2.9314 4.7479-7.6972 10.506-16.996 21.221-37.168 39.202-55.265 89.471-58.625 142.53l0.1562 529.78c1.7751 13.738 8.7702 35.164 19.781 39.781h230c11.011-4.6175 18.006-26.043 19.781-39.781l0.1563-529.78c-3.3599-53.061-21.458-103.33-58.625-142.53-10.854-12.506-15.532-18.26-18.326-23.536-3.1276-4.949-3.2868-10.244-3.49-15.865l-6.87-190.15c0.0539-9.5782 0.4645-11.567 1.2187-13.156 1.4348-3.0236 1.6328-5.8086 1.2188-18-0.2984-8.7896-0.9472-14.958-1.6563-15.813-0.6399-0.77108-1.3609-4.2897-1.5937-7.8125-0.4641-7.0203-1.6048-10.885-3.6875-12.469-28.65-2.2076-57.603-2.4136-86.25 0zm72.031 61.112h5v180h-5v-180zm56 388v521h-6v-521h6zm21 0v521h-13v-521h13z";
 
 /** SVG wine bottle illustration with a fill colour determined by wine type. */
 const WineBottle = React.forwardRef<SVGSVGElement, { color?: string; style?: React.CSSProperties }>(
