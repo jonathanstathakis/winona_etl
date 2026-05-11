@@ -4,9 +4,8 @@ import { useParams, useRouter } from "next/navigation";
 import PrintDialog from "../../components/PrintDialog";
 
 const NAVY = "#1a2b5f";
-const GRID_STEP = 40;
-const CANVAS_W = 30;
-const CANVAS_H = 20;
+const CANVAS_W = 2000;
+const CANVAS_H = 1500;
 
 type Vertex = { x: number; y: number };
 type FloorBay = { id: string; name: string; floor_x: number | null; floor_y: number | null; floor_w: number; floor_h: number; floor_rotation: number; color: string };
@@ -38,7 +37,7 @@ export default function OutletHub() {
   }, [layoutId, outlet]);
 
   const placedBays = floorPlan?.bays.filter((b) => b.floor_x !== null) ?? [];
-  const polygonPoints = floorPlan?.vertices.map((v) => `${v.x * GRID_STEP},${v.y * GRID_STEP}`).join(" ") ?? "";
+  const polygonPoints = floorPlan?.vertices.map((v) => `${v.x},${v.y}`).join(" ") ?? "";
   const closed = (floorPlan?.vertices.length ?? 0) >= 3;
 
   return (
@@ -61,26 +60,21 @@ export default function OutletHub() {
           <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "flex-start" }}>
           <div style={{ height: "100%", aspectRatio: `${CANVAS_W}/${CANVAS_H}`, maxWidth: "100%", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden", background: "#f9f9f9" }}>
             {floorPlan ? (
-              <svg viewBox={`0 0 ${CANVAS_W * GRID_STEP} ${CANVAS_H * GRID_STEP}`}
+              <svg viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
                 style={{ display: "block", width: "100%", height: "100%" }}>
-                {Array.from({ length: CANVAS_W + 1 }, (_, xi) =>
-                  Array.from({ length: CANVAS_H + 1 }, (_, yi) => (
-                    <circle key={`${xi}-${yi}`} cx={xi * GRID_STEP} cy={yi * GRID_STEP} r={1.5} fill="#ccc" style={{ pointerEvents: "none" }} />
-                  ))
-                )}
-                {closed && <polygon points={polygonPoints} fill={`${NAVY}15`} stroke={NAVY} strokeWidth={2} strokeLinejoin="round" style={{ pointerEvents: "none" }} />}
-                {!closed && (floorPlan.vertices.length >= 2) && <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={2} strokeDasharray="6,4" style={{ pointerEvents: "none" }} />}
+                {closed && <polygon points={polygonPoints} fill={`${NAVY}15`} stroke={NAVY} strokeWidth={8} strokeLinejoin="round" style={{ pointerEvents: "none" }} />}
+                {!closed && (floorPlan.vertices.length >= 2) && <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={8} strokeDasharray="24,16" style={{ pointerEvents: "none" }} />}
                 {placedBays.map((b) => {
-                  const x = (b.floor_x ?? 0) * GRID_STEP;
-                  const y = (b.floor_y ?? 0) * GRID_STEP;
-                  const w = b.floor_w * GRID_STEP;
-                  const h = b.floor_h * GRID_STEP;
+                  const x = b.floor_x ?? 0;
+                  const y = b.floor_y ?? 0;
+                  const w = b.floor_w;
+                  const h = b.floor_h;
                   return (
                     <g key={b.id} style={{ cursor: "pointer" }}
                       onClick={() => router.push(`/planogram/${layoutId}/${outlet}/${b.id}`)}>
-                      <rect x={x} y={y} width={w} height={h} fill={b.color} stroke="rgba(0,0,0,0.2)" strokeWidth={1.5} rx={3} />
+                      <rect x={x} y={y} width={w} height={h} fill={b.color} stroke="rgba(0,0,0,0.2)" strokeWidth={6} rx={12} />
                       <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
-                        fontSize={Math.min(14, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={labelColor(b.color)}
+                        fontSize={Math.min(60, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={labelColor(b.color)}
                         style={{ userSelect: "none", pointerEvents: "none" }}>{b.name}</text>
                     </g>
                   );

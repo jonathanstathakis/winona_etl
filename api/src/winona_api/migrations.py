@@ -94,4 +94,7 @@ def run_migrations() -> None:
     _ddl(conn, "ALTER TABLE planogram.bay ADD COLUMN IF NOT EXISTS floor_h FLOAT NOT NULL DEFAULT 2")
     _ddl(conn, "ALTER TABLE planogram.bay ADD COLUMN IF NOT EXISTS floor_rotation INT NOT NULL DEFAULT 0")
     _ddl(conn, "ALTER TABLE planogram.bay ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#2E5FA3'")
+    # convert floor coords from grid-units (50cm each) to cm — idempotent (only runs if values are small)
+    _ddl(conn, "UPDATE planogram.bay SET floor_w = floor_w * 50, floor_h = floor_h * 50 WHERE floor_w < 50")
+    _ddl(conn, "UPDATE planogram.bay SET floor_x = floor_x * 50, floor_y = floor_y * 50 WHERE floor_x IS NOT NULL AND floor_x < 1000")
     log.info("Migrations complete.")

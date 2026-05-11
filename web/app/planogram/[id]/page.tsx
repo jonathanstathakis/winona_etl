@@ -4,9 +4,8 @@ import { useParams, useRouter } from "next/navigation";
 import PrintDialog from "../components/PrintDialog";
 
 const NAVY = "#1a2b5f";
-const GRID_STEP = 40;
-const CANVAS_W = 30;
-const CANVAS_H = 20;
+const CANVAS_W = 2000;
+const CANVAS_H = 1500;
 const OUTLETS = ["rozelle", "avalon", "manly"] as const;
 type Outlet = (typeof OUTLETS)[number];
 
@@ -32,27 +31,22 @@ function FloorPlanThumb({ floorPlan }: { floorPlan: FloorPlan | null }) {
   }
   const placedBays = floorPlan.bays.filter((b) => b.floor_x !== null);
   const closed = floorPlan.vertices.length >= 3;
-  const polygonPoints = floorPlan.vertices.map((v) => `${v.x * GRID_STEP},${v.y * GRID_STEP}`).join(" ");
+  const polygonPoints = floorPlan.vertices.map((v) => `${v.x},${v.y}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${CANVAS_W * GRID_STEP} ${CANVAS_H * GRID_STEP}`}
+    <svg viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
       style={{ display: "block", width: "100%", height: "auto", background: "#f9f9f9" }}>
-      {Array.from({ length: CANVAS_W + 1 }, (_, xi) =>
-        Array.from({ length: CANVAS_H + 1 }, (_, yi) => (
-          <circle key={`${xi}-${yi}`} cx={xi * GRID_STEP} cy={yi * GRID_STEP} r={1.2} fill="#e0e0e0" />
-        ))
-      )}
-      {closed && <polygon points={polygonPoints} fill={`${NAVY}18`} stroke={NAVY} strokeWidth={2} strokeLinejoin="round" />}
-      {!closed && floorPlan.vertices.length >= 2 && <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={2} strokeDasharray="6,4" />}
+      {closed && <polygon points={polygonPoints} fill={`${NAVY}18`} stroke={NAVY} strokeWidth={8} strokeLinejoin="round" />}
+      {!closed && floorPlan.vertices.length >= 2 && <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={8} strokeDasharray="24,16" />}
       {placedBays.map((b) => {
-        const x = (b.floor_x ?? 0) * GRID_STEP;
-        const y = (b.floor_y ?? 0) * GRID_STEP;
-        const w = b.floor_w * GRID_STEP;
-        const h = b.floor_h * GRID_STEP;
+        const x = b.floor_x ?? 0;
+        const y = b.floor_y ?? 0;
+        const w = b.floor_w;
+        const h = b.floor_h;
         return (
           <g key={b.id}>
-            <rect x={x} y={y} width={w} height={h} fill="#fff" stroke={NAVY} strokeWidth={2} rx={3} />
+            <rect x={x} y={y} width={w} height={h} fill="#fff" stroke={NAVY} strokeWidth={6} rx={12} />
             <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
-              fontSize={Math.min(14, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={NAVY}
+              fontSize={Math.min(60, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={NAVY}
               style={{ userSelect: "none", pointerEvents: "none" }}>{b.name}</text>
           </g>
         );

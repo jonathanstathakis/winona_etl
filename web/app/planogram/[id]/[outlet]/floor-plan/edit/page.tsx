@@ -1,13 +1,12 @@
 "use client";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 const NAVY = "#1a2b5f";
-const GRID_STEP = 40;
-const CANVAS_W = 30;
-const CANVAS_H = 20;
-const RULER_W = 36;
-const CM_PER_GRID = 50;
+const CANVAS_W = 2000;  // cm
+const CANVAS_H = 1500;  // cm
+const MIN_ZOOM = 0.05;  // px/cm
+const MAX_ZOOM = 20;    // px/cm
 
 type Vertex = { x: number; y: number };
 
@@ -22,14 +21,22 @@ type FloorBay = {
   color: string;
 };
 
+type Pan = { x: number; y: number };
 type Mode = "place" | "room";
 
 type BayDrag = {
   bayId: string;
-  startSvgX: number;
-  startSvgY: number;
+  startWorldX: number;
+  startWorldY: number;
   origFloorX: number;
   origFloorY: number;
+};
+
+type PanDrag = {
+  startClientX: number;
+  startClientY: number;
+  origPanX: number;
+  origPanY: number;
 };
 
 type VertexDrag = { index: number };
@@ -39,11 +46,10 @@ const btnStyle: React.CSSProperties = {
   border: "1px solid #ccc", borderRadius: 4, cursor: "pointer",
 };
 
-function snapGrid(px: number): number {
-  return Math.round(px / GRID_STEP);
-}
+function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
+function snap(v: number) { return Math.round(v); }
 
-function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+function hexToRgb(hex: string) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
 }
@@ -51,8 +57,7 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
 function labelColor(bg: string): string {
   const rgb = hexToRgb(bg);
   if (!rgb) return "#fff";
-  const lum = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
-  return lum > 0.5 ? "#111" : "#fff";
+  return (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255 > 0.5 ? "#111" : "#fff";
 }
 
 export default function FloorPlanEdit() {
@@ -61,6 +66,7 @@ export default function FloorPlanEdit() {
 
   const svgRef = useRef<SVGSVGElement>(null);
   const bayDragRef = useRef<BayDrag | null>(null);
+  const panDragRef = useRef<PanDrag | null>(null);
   const vertexDragRef = useRef<VertexDrag | null>(null);
 
   const [vertices, setVertices] = useState<Vertex[]>([]);
@@ -70,6 +76,8 @@ export default function FloorPlanEdit() {
   const [selectedBayId, setSelectedBayId] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [zoom, setZoom] = useState(0.4);
+  const [pan, setPan] = useState<Pan>({ x: 20, y: 20 });
 
   useEffect(() => {
     fetch(`/api/planogram/floor-plan/${outlet}`)
@@ -79,27 +87,56 @@ export default function FloorPlanEdit() {
         setPolygonClosed(data.vertices.length >= 3);
         setBays(data.bays);
         setIsDirty(false);
+        fitToRoom();
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outlet]);
 
-  function svgCoords(e: React.PointerEvent | MouseEvent): { x: number; y: number } {
-    const svg = svgRef.current!;
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX;
-    pt.y = e.clientY;
-    const local = pt.matrixTransform(svg.getScreenCTM()!.inverse());
-    return { x: local.x, y: local.y };
+  const fitToRoom = useCallback(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const { width: sw, height: sh } = svg.getBoundingClientRect();
+    if (!sw || !sh) return;
+    const fitZoom = clamp(Math.min(sw / CANVAS_W, sh / CANVAS_H) * 0.88, MIN_ZOOM, MAX_ZOOM);
+    setPan({ x: (sw - CANVAS_W * fitZoom) / 2, y: (sh - CANVAS_H * fitZoom) / 2 });
+    setZoom(fitZoom);
+  }, []);
+
+  // fit on first render after layout settles
+  useEffect(() => {
+    const t = setTimeout(fitToRoom, 50);
+    return () => clearTimeout(t);
+  }, [fitToRoom]);
+
+  function worldCoords(e: { clientX: number; clientY: number }): { x: number; y: number } {
+    const rect = svgRef.current!.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left - pan.x) / zoom,
+      y: (e.clientY - rect.top - pan.y) / zoom,
+    };
+  }
+
+  function handleWheel(e: React.WheelEvent<SVGSVGElement>) {
+    e.preventDefault();
+    const rect = svgRef.current!.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newZoom = clamp(zoom * factor, MIN_ZOOM, MAX_ZOOM);
+    const scale = newZoom / zoom;
+    setPan((p) => ({ x: mx - (mx - p.x) * scale, y: my - (my - p.y) * scale }));
+    setZoom(newZoom);
   }
 
   function handleCanvasClick(e: React.MouseEvent<SVGSVGElement>) {
     if (mode !== "room" || polygonClosed) return;
     const target = e.target as SVGElement;
-    if (target.getAttribute("data-vertex")) return;
-    const { x, y } = svgCoords(e as unknown as MouseEvent);
-    const snapped = { x: Math.max(0, snapGrid(x)), y: Math.max(0, snapGrid(y)) };
+    if (target.getAttribute("data-vertex") || target.getAttribute("data-bay")) return;
+    const { x, y } = worldCoords(e);
+    const snapped = { x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) };
     if (vertices.length >= 3) {
       const first = vertices[0];
-      if (Math.abs(snapped.x - first.x) <= 1 && Math.abs(snapped.y - first.y) <= 1) {
+      if (Math.abs(snapped.x - first.x) <= 5 && Math.abs(snapped.y - first.y) <= 5) {
         setPolygonClosed(true);
         setIsDirty(true);
         return;
@@ -113,22 +150,49 @@ export default function FloorPlanEdit() {
     if (mode !== "place" || bay.floor_x === null || bay.floor_y === null) return;
     e.stopPropagation();
     setSelectedBayId(bay.id);
-    const { x, y } = svgCoords(e);
-    bayDragRef.current = { bayId: bay.id, startSvgX: x, startSvgY: y, origFloorX: bay.floor_x, origFloorY: bay.floor_y };
+    const { x, y } = worldCoords(e);
+    bayDragRef.current = { bayId: bay.id, startWorldX: x, startWorldY: y, origFloorX: bay.floor_x, origFloorY: bay.floor_y };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
-  function handleBayPointerMove(e: React.PointerEvent<SVGRectElement>) {
-    const drag = bayDragRef.current;
-    if (!drag) return;
-    const { x, y } = svgCoords(e);
-    const newX = Math.max(0, snapGrid(drag.origFloorX * GRID_STEP + (x - drag.startSvgX)));
-    const newY = Math.max(0, snapGrid(drag.origFloorY * GRID_STEP + (y - drag.startSvgY)));
-    setBays((prev) => prev.map((b) => b.id === drag.bayId ? { ...b, floor_x: newX, floor_y: newY } : b));
-    setIsDirty(true);
+  function handleBackgroundPointerDown(e: React.PointerEvent<SVGRectElement>) {
+    if (mode !== "place") return;
+    setSelectedBayId(null);
+    panDragRef.current = { startClientX: e.clientX, startClientY: e.clientY, origPanX: pan.x, origPanY: pan.y };
+    (e.target as Element).setPointerCapture(e.pointerId);
   }
 
-  function handleBayPointerUp() { bayDragRef.current = null; }
+  function handleSvgPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    // bay drag
+    const bd = bayDragRef.current;
+    if (bd) {
+      const { x, y } = worldCoords(e);
+      const newX = clamp(snap(bd.origFloorX + x - bd.startWorldX), 0, CANVAS_W);
+      const newY = clamp(snap(bd.origFloorY + y - bd.startWorldY), 0, CANVAS_H);
+      setBays((prev) => prev.map((b) => b.id === bd.bayId ? { ...b, floor_x: newX, floor_y: newY } : b));
+      setIsDirty(true);
+      return;
+    }
+    // pan drag
+    const pd = panDragRef.current;
+    if (pd) {
+      setPan({ x: pd.origPanX + e.clientX - pd.startClientX, y: pd.origPanY + e.clientY - pd.startClientY });
+    }
+    // vertex drag
+    const vd = vertexDragRef.current;
+    if (vd) {
+      const { x, y } = worldCoords(e);
+      const snapped = { x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) };
+      setVertices((prev) => prev.map((v, i) => i === vd.index ? snapped : v));
+      setIsDirty(true);
+    }
+  }
+
+  function handleSvgPointerUp() {
+    bayDragRef.current = null;
+    panDragRef.current = null;
+    vertexDragRef.current = null;
+  }
 
   function handleVertexPointerDown(e: React.PointerEvent<SVGCircleElement>, index: number) {
     e.stopPropagation();
@@ -136,20 +200,9 @@ export default function FloorPlanEdit() {
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
-  function handleVertexPointerMove(e: React.PointerEvent<SVGCircleElement>) {
-    const drag = vertexDragRef.current;
-    if (!drag) return;
-    const { x, y } = svgCoords(e);
-    const snapped = { x: Math.max(0, snapGrid(x)), y: Math.max(0, snapGrid(y)) };
-    setVertices((prev) => prev.map((v, i) => i === drag.index ? snapped : v));
-    setIsDirty(true);
-  }
-
-  function handleVertexPointerUp() { vertexDragRef.current = null; }
-
   function handlePlaceBay(bay: FloorBay) {
-    const cx = Math.round(CANVAS_W / 2 - bay.floor_w / 2);
-    const cy = Math.round(CANVAS_H / 2 - bay.floor_h / 2);
+    const cx = clamp(Math.round(CANVAS_W / 2 - bay.floor_w / 2), 0, CANVAS_W);
+    const cy = clamp(Math.round(CANVAS_H / 2 - bay.floor_h / 2), 0, CANVAS_H);
     setBays((prev) => prev.map((b) => b.id === bay.id ? { ...b, floor_x: cx, floor_y: cy } : b));
     setSelectedBayId(bay.id);
     setIsDirty(true);
@@ -200,19 +253,36 @@ export default function FloorPlanEdit() {
     }
   }
 
+  // adaptive grid: choose step so dots are at least 8px apart
+  const gridStep = ([1, 10, 100, 1000] as const).find((s) => s * zoom >= 8) ?? 1000;
+  const labelStep = gridStep * 10;
+
+  // visible world rect (clipped to canvas)
+  const svgEl = svgRef.current;
+  const svgW = svgEl?.clientWidth ?? 900;
+  const svgH = svgEl?.clientHeight ?? 600;
+  const visLeft = clamp(Math.floor(-pan.x / zoom / gridStep) * gridStep, 0, CANVAS_W);
+  const visRight = clamp(Math.ceil((svgW - pan.x) / zoom / gridStep) * gridStep, 0, CANVAS_W);
+  const visTop = clamp(Math.floor(-pan.y / zoom / gridStep) * gridStep, 0, CANVAS_H);
+  const visBot = clamp(Math.ceil((svgH - pan.y) / zoom / gridStep) * gridStep, 0, CANVAS_H);
+
+  const gridXs: number[] = [];
+  for (let x = visLeft; x <= visRight; x += gridStep) gridXs.push(x);
+  const gridYs: number[] = [];
+  for (let y = visTop; y <= visBot; y += gridStep) gridYs.push(y);
+
+  const polygonPoints = vertices.map((v) => `${v.x},${v.y}`).join(" ");
   const placedBays = bays.filter((b) => b.floor_x !== null);
   const unplacedBays = bays.filter((b) => b.floor_x === null);
   const selectedBay = bays.find((b) => b.id === selectedBayId) ?? null;
-  const polygonPoints = vertices.map((v) => `${v.x * GRID_STEP},${v.y * GRID_STEP}`).join(" ");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", padding: 16, boxSizing: "border-box", overflow: "hidden" }}>
+      {/* toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}/floor-plan`)} style={btnStyle}>← Floor plan</button>
         <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Edit Floor Plan</h1>
-
         <span style={{ width: 12 }} />
-
         <button onClick={() => setMode("place")}
           style={{ ...btnStyle, background: mode === "place" ? NAVY : "#eee", color: mode === "place" ? "#fff" : "#333", border: "none" }}>
           Place Bays
@@ -221,23 +291,19 @@ export default function FloorPlanEdit() {
           style={{ ...btnStyle, background: mode === "room" ? NAVY : "#eee", color: mode === "room" ? "#fff" : "#333", border: "none" }}>
           Edit Room
         </button>
-
         {mode === "room" && vertices.length >= 3 && !polygonClosed && (
-          <button onClick={() => { setPolygonClosed(true); setIsDirty(true); }}
-            style={{ ...btnStyle, borderColor: "#2a7", color: "#2a7" }}>Close polygon</button>
+          <button onClick={() => { setPolygonClosed(true); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#2a7", color: "#2a7" }}>Close polygon</button>
         )}
         {mode === "room" && vertices.length > 0 && (
-          <button onClick={() => { setVertices([]); setPolygonClosed(false); setIsDirty(true); }}
-            style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Clear room</button>
+          <button onClick={() => { setVertices([]); setPolygonClosed(false); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Clear room</button>
         )}
-
         <span style={{ flex: 1 }} />
-        <button onClick={handleSave} disabled={!isDirty || isSaving} style={btnStyle}>
-          {isSaving ? "Saving…" : "Save"}
-        </button>
+        <button onClick={fitToRoom} style={btnStyle}>Fit</button>
+        <button onClick={handleSave} disabled={!isDirty || isSaving} style={btnStyle}>{isSaving ? "Saving…" : "Save"}</button>
       </div>
 
       <div style={{ display: "flex", flex: 1, gap: 16, minHeight: 0 }}>
+        {/* unplaced sidebar */}
         {mode === "place" && (
           <div style={{ width: 160, flexShrink: 0, borderRight: "1px solid #ccc", paddingRight: 12, overflowY: "auto" }}>
             <p style={{ fontSize: 11, color: "#888", margin: "0 0 8px", fontWeight: "bold" }}>Unplaced bays</p>
@@ -252,104 +318,100 @@ export default function FloorPlanEdit() {
           </div>
         )}
 
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        {/* canvas */}
+        <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden", background: "#f9f9f9", border: "1px solid #ddd" }}>
           <svg ref={svgRef}
-            viewBox={`${-RULER_W} ${-RULER_W} ${CANVAS_W * GRID_STEP + RULER_W} ${CANVAS_H * GRID_STEP + RULER_W}`}
-            style={{ display: "block", width: "100%", height: "auto", background: "#f9f9f9", border: "1px solid #ddd",
-              cursor: mode === "room" && !polygonClosed ? "crosshair" : "default" }}
-            onClick={handleCanvasClick}>
+            style={{ display: "block", width: "100%", height: "100%", cursor: mode === "room" && !polygonClosed ? "crosshair" : "default" }}
+            onWheel={handleWheel}
+            onClick={handleCanvasClick}
+            onPointerMove={handleSvgPointerMove}
+            onPointerUp={handleSvgPointerUp}>
 
-            <rect x={-RULER_W} y={-RULER_W} width={RULER_W} height={RULER_W} fill="#e0e0e0" />
-            <text x={-RULER_W / 2} y={-RULER_W / 2} textAnchor="middle" dominantBaseline="middle" fontSize={10} fill="#888" style={{ pointerEvents: "none" }}>cm</text>
-            <rect x={0} y={-RULER_W} width={CANVAS_W * GRID_STEP} height={RULER_W} fill="#e8e8e8" />
-            <rect x={-RULER_W} y={0} width={RULER_W} height={CANVAS_H * GRID_STEP} fill="#e8e8e8" />
+            <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+              {/* canvas boundary */}
+              <rect x={0} y={0} width={CANVAS_W} height={CANVAS_H} fill="white" stroke="#ccc" strokeWidth={1 / zoom} />
 
-            {Array.from({ length: CANVAS_W + 1 }, (_, i) => {
-              const x = i * GRID_STEP;
-              const cm = i * CM_PER_GRID;
-              const major = i % 2 === 0;
-              return (
-                <g key={`tr-${i}`} style={{ pointerEvents: "none" }}>
-                  <line x1={x} y1={major ? -RULER_W : -RULER_W / 2} x2={x} y2={0} stroke="#aaa" strokeWidth={0.5} />
-                  {major && <text x={x} y={-RULER_W / 2 - 1} textAnchor="middle" dominantBaseline="auto" fontSize={10} fill="#555">{cm}</text>}
-                </g>
-              );
-            })}
+              {/* background drag target (pan) */}
+              <rect x={-CANVAS_W * 2} y={-CANVAS_H * 2} width={CANVAS_W * 5} height={CANVAS_H * 5} fill="transparent"
+                style={{ cursor: mode === "place" ? "grab" : "default" }}
+                onPointerDown={handleBackgroundPointerDown} />
 
-            {Array.from({ length: CANVAS_H + 1 }, (_, i) => {
-              const y = i * GRID_STEP;
-              const cm = i * CM_PER_GRID;
-              const major = i % 2 === 0;
-              return (
-                <g key={`lr-${i}`} style={{ pointerEvents: "none" }}>
-                  <line x1={major ? -RULER_W : -RULER_W / 2} y1={y} x2={0} y2={y} stroke="#aaa" strokeWidth={0.5} />
-                  {major && <text x={-3} y={y} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="#555">{cm}</text>}
-                </g>
-              );
-            })}
+              {/* adaptive grid dots */}
+              {gridXs.flatMap((x) =>
+                gridYs.map((y) => (
+                  <circle key={`${x}-${y}`} cx={x} cy={y} r={Math.max(0.5, 1 / zoom)} fill="#ccc" style={{ pointerEvents: "none" }} />
+                ))
+              )}
 
-            {Array.from({ length: CANVAS_W + 1 }, (_, xi) =>
-              Array.from({ length: CANVAS_H + 1 }, (_, yi) => (
-                <circle key={`${xi}-${yi}`} cx={xi * GRID_STEP} cy={yi * GRID_STEP} r={1.5} fill="#ccc" style={{ pointerEvents: "none" }} />
-              ))
-            )}
+              {/* grid labels */}
+              {gridXs.filter((x) => x % labelStep === 0).map((x) => (
+                <text key={`lx-${x}`} x={x} y={-6 / zoom} textAnchor="middle" fontSize={10 / zoom} fill="#999" style={{ pointerEvents: "none" }}>{x}</text>
+              ))}
+              {gridYs.filter((y) => y % labelStep === 0).map((y) => (
+                <text key={`ly-${y}`} x={-6 / zoom} y={y} textAnchor="end" dominantBaseline="middle" fontSize={10 / zoom} fill="#999" style={{ pointerEvents: "none" }}>{y}</text>
+              ))}
 
-            {vertices.length >= 2 && polygonClosed && (
-              <polygon points={polygonPoints} fill={`${NAVY}15`} stroke={NAVY} strokeWidth={2} strokeLinejoin="round" style={{ pointerEvents: "none" }} />
-            )}
-            {vertices.length >= 2 && !polygonClosed && (
-              <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={2} strokeDasharray="6,4" strokeLinejoin="round" style={{ pointerEvents: "none" }} />
-            )}
+              {/* room polygon */}
+              {vertices.length >= 2 && polygonClosed && (
+                <polygon points={polygonPoints} fill={`${NAVY}15`} stroke={NAVY} strokeWidth={2 / zoom} strokeLinejoin="round" style={{ pointerEvents: "none" }} />
+              )}
+              {vertices.length >= 2 && !polygonClosed && (
+                <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={2 / zoom} strokeDasharray={`${6 / zoom},${4 / zoom}`} strokeLinejoin="round" style={{ pointerEvents: "none" }} />
+              )}
 
-            {placedBays.map((b) => {
-              const x = (b.floor_x ?? 0) * GRID_STEP;
-              const y = (b.floor_y ?? 0) * GRID_STEP;
-              const w = b.floor_w * GRID_STEP;
-              const h = b.floor_h * GRID_STEP;
-              const isSelected = b.id === selectedBayId;
-              return (
-                <g key={b.id}>
-                  <rect x={x} y={y} width={w} height={h} fill={b.color}
-                    stroke={isSelected ? "#f0a500" : "rgba(0,0,0,0.3)"} strokeWidth={isSelected ? 2.5 : 1.5} rx={3}
-                    style={{ cursor: mode === "place" ? "grab" : "default" }}
-                    onPointerDown={(e) => handleBayPointerDown(e, b)}
-                    onPointerMove={handleBayPointerMove}
-                    onPointerUp={handleBayPointerUp} />
-                  <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
-                    fontSize={Math.min(14, w / b.name.length * 1.6)} fontWeight="bold" fill={labelColor(b.color)}
-                    style={{ pointerEvents: "none", userSelect: "none" }}>{b.name}</text>
-                </g>
-              );
-            })}
+              {/* placed bays */}
+              {placedBays.map((b) => {
+                const x = b.floor_x ?? 0;
+                const y = b.floor_y ?? 0;
+                const isSelected = b.id === selectedBayId;
+                const fontSize = clamp(b.floor_w / Math.max(b.name.length, 1) * 0.8, 6 / zoom, 24 / zoom);
+                return (
+                  <g key={b.id} data-bay="true">
+                    <rect x={x} y={y} width={b.floor_w} height={b.floor_h} fill={b.color}
+                      stroke={isSelected ? "#f0a500" : "rgba(0,0,0,0.25)"} strokeWidth={isSelected ? 3 / zoom : 1.5 / zoom} rx={3 / zoom}
+                      style={{ cursor: mode === "place" ? "grab" : "default" }}
+                      onPointerDown={(e) => handleBayPointerDown(e, b)} />
+                    <text x={x + b.floor_w / 2} y={y + b.floor_h / 2} textAnchor="middle" dominantBaseline="middle"
+                      fontSize={fontSize} fontWeight="bold" fill={labelColor(b.color)}
+                      style={{ pointerEvents: "none", userSelect: "none" }}>{b.name}</text>
+                  </g>
+                );
+              })}
 
-            {mode === "room" && vertices.map((v, i) => (
-              <circle key={i} cx={v.x * GRID_STEP} cy={v.y * GRID_STEP} r={7}
-                fill={i === 0 ? "#2a7" : "#fff"} stroke={NAVY} strokeWidth={2}
-                data-vertex="true" style={{ cursor: "move" }}
-                onPointerDown={(e) => handleVertexPointerDown(e, i)}
-                onPointerMove={handleVertexPointerMove}
-                onPointerUp={handleVertexPointerUp} />
-            ))}
+              {/* vertex handles */}
+              {mode === "room" && vertices.map((v, i) => (
+                <circle key={i} cx={v.x} cy={v.y} r={7 / zoom}
+                  fill={i === 0 ? "#2a7" : "#fff"} stroke={NAVY} strokeWidth={2 / zoom}
+                  data-vertex="true" style={{ cursor: "move" }}
+                  onPointerDown={(e) => { e.stopPropagation(); vertexDragRef.current = { index: i }; (e.target as Element).setPointerCapture(e.pointerId); }} />
+              ))}
+            </g>
           </svg>
+
+          {/* zoom level badge */}
+          <div style={{ position: "absolute", bottom: 8, right: 8, fontSize: 10, color: "#aaa", background: "rgba(255,255,255,0.8)", padding: "2px 6px", borderRadius: 3, pointerEvents: "none" }}>
+            {Math.round(zoom * 100) / 100} px/cm · snap {gridStep} cm
+          </div>
         </div>
 
+        {/* properties panel */}
         {mode === "place" && selectedBay && selectedBay.floor_x !== null && (
           <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12 }}>
             <p style={{ fontSize: 11, color: "#888", margin: "0 0 10px", fontWeight: "bold" }}>{selectedBay.name}</p>
 
             <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
               Width (cm)
-              <input type="number" min={50} max={1000} step={50}
-                value={Math.round(selectedBay.floor_w * CM_PER_GRID)}
-                onChange={(e) => handlePropChange("floor_w", Math.max(1, Math.round(Number(e.target.value) / CM_PER_GRID)))}
+              <input type="number" min={10} max={2000} step={10}
+                value={selectedBay.floor_w}
+                onChange={(e) => handlePropChange("floor_w", Math.max(10, Number(e.target.value)))}
                 style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
             </label>
 
             <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
               Depth (cm)
-              <input type="number" min={50} max={1000} step={50}
-                value={Math.round(selectedBay.floor_h * CM_PER_GRID)}
-                onChange={(e) => handlePropChange("floor_h", Math.max(1, Math.round(Number(e.target.value) / CM_PER_GRID)))}
+              <input type="number" min={10} max={2000} step={10}
+                value={selectedBay.floor_h}
+                onChange={(e) => handlePropChange("floor_h", Math.max(10, Number(e.target.value)))}
                 style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
             </label>
 
@@ -360,6 +422,10 @@ export default function FloorPlanEdit() {
                 style={{ display: "block", width: "100%", height: 32, marginTop: 3, padding: 2, border: "1px solid #ccc", borderRadius: 4, cursor: "pointer", boxSizing: "border-box" }} />
             </label>
 
+            <div style={{ fontSize: 10, color: "#aaa", marginBottom: 10 }}>
+              {selectedBay.floor_x !== null ? `${selectedBay.floor_x}, ${selectedBay.floor_y} cm` : ""}
+            </div>
+
             <button onClick={handleRotate} style={{ ...btnStyle, width: "100%", marginBottom: 6, borderColor: "#f0a500", color: "#f0a500" }}>Rotate 90°</button>
             <button onClick={() => handleRemoveBay(selectedBay.id)} style={{ ...btnStyle, width: "100%", borderColor: "#e55", color: "#e55" }}>Remove</button>
           </div>
@@ -367,10 +433,10 @@ export default function FloorPlanEdit() {
       </div>
 
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa" }}>
-        {mode === "room" && !polygonClosed && "Click the canvas to add vertices. Click near the first vertex (green) to close the polygon."}
-        {mode === "room" && polygonClosed && "Drag vertices to adjust. Click \"Edit Room\" again to reopen the polygon."}
-        {mode === "place" && !selectedBay && "Click + to place a bay, then drag it into position. Click a placed bay to select it."}
-        {mode === "place" && selectedBay && "Drag to reposition. Use the panel to adjust size and colour."}
+        {mode === "room" && !polygonClosed && "Click to add vertices. Click near the first vertex (green) to close."}
+        {mode === "room" && polygonClosed && "Drag vertices to adjust. Click \"Edit Room\" to reopen."}
+        {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
+        {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
       </div>
     </div>
   );
