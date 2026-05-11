@@ -120,6 +120,38 @@ Key modules:
 
 ---
 
+## Planogram Domain
+
+### Terminology
+- **Layout** — named, versioned snapshot of the planogram configuration across all 3 outlets. One is flagged `is_current` at any time. Duplicated then modified (no branching for now).
+- **Outlet** — one of 3 physical stores: manly, avalon, rozelle.
+- **Bay** — physical fixture within an outlet. Outlet-specific, not shared across outlets.
+- **Planogram** — the actual shelf/slot/product layout for a single bay within a layout.
+- **Shelf** — a horizontal row within a planogram.
+- **Slot** — an individual product position on a shelf.
+
+### Data hierarchy
+Layout → Outlets (3) → Bays → Planogram → Shelves → Slots → Products
+
+### Key behaviours
+- Layouts are duplicated then modified (no in-place branching for now).
+- Bays are outlet-specific, not shared across outlets.
+- One Layout is flagged `is_current` at a time.
+- Range updates are event-driven (range reviews, supplier changes), not seasonal.
+- Floor plan (room polygon + bay positions) is outlet-level, shared across layout versions.
+
+### Route structure
+```
+/planogram                                  ← Layout list (picker)
+/planogram/[id]                             ← Layout hub (3 outlet cards)
+/planogram/[id]/[outlet]                    ← Outlet hub (bay list + floor plan thumbnail)
+/planogram/[id]/[outlet]/floor-plan         ← Floor plan view
+/planogram/[id]/[outlet]/floor-plan/edit    ← Floor plan editor
+/planogram/[id]/[outlet]/[bay-id]           ← Bay planogram editor
+```
+
+---
+
 ## Known TODOs (in code)
 
 - `transfer/page.tsx`: Add "create new" button (clears grid, transferName, currentTransferId)

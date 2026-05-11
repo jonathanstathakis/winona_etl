@@ -1,4 +1,5 @@
 import uuid
+import json
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -54,34 +55,54 @@ class BayOut(BaseModel):
     shelves: list[ShelfConfig]
 
 
-class PlanogramIn(BaseModel):
-    outlet: str
-    name: str
-    description: str = ""
-
-
-class PlanogramOut(BaseModel):
-    id: str
-    outlet: str
-    name: str
-    description: str
-    status: str
-    created_at: str
-    updated_at: str
-
-
 class PlacementIn(BaseModel):
-    bay_id: str
     shelf_index: int
     slot_index: int
     sku: str
 
 
-class PlanogramDetail(PlanogramOut):
+class LayoutOut(BaseModel):
+    id: str
+    name: str
+    is_current: bool
+    created_at: str
+
+
+class OutletSummary(BaseModel):
+    outlet: str
+    bay_count: int
+    planogram_count: int
+
+
+class LayoutDetail(LayoutOut):
+    outlets: list[OutletSummary]
+
+
+class LayoutIn(BaseModel):
+    name: str
+
+
+class LayoutPatchIn(BaseModel):
+    name: str | None = None
+    is_current: bool | None = None
+
+
+class BayPlanogramSummary(BaseModel):
+    bay_id: str
+    bay_name: str
+    has_planogram: bool
+    shelf_count: int
+
+
+class BayPlanogramDetail(BaseModel):
+    planogram_id: str | None
+    bay_id: str
+    layout_id: str
+    shelves: list[ShelfConfig]
     placements: list[PlacementIn]
 
 
-# --- bay endpoints ---
+# --- bay endpoints (physical fixtures, unchanged) ---
 
 def _next_sort_order(conn, outlet: str) -> int:
     rows = _rows(conn, f"SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM wh.planogram.bay WHERE outlet = '{_esc(outlet)}'")
@@ -178,124 +199,264 @@ def reorder_bays(body: ReorderBaysIn) -> None:
         """)
 
 
-# --- planogram endpoints ---
+# --- layout endpoints ---
 
-@router.get("/planograms")
-def list_planograms(outlet: str) -> list[PlanogramOut]:
-    _validate_outlet(outlet)
-    rows = _rows(get_conn(), f"""
-        SELECT id, outlet, name, description, status,
-               created_at::text AS created_at, updated_at::text AS updated_at
-        FROM wh.planogram.planogram
-        WHERE outlet = '{_esc(outlet)}'
+def _load_layout(conn, layout_id: str) -> LayoutOut:
+    rows = _rows(conn, f"""
+        SELECT id, name, is_current, created_at::text AS created_at
+        FROM wh.planogram.layout WHERE id = '{_esc(layout_id)}'
+    """)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Layout not found")
+    return LayoutOut(**rows[0])
+
+
+@router.get("/layouts")
+def list_layouts() -> list[LayoutOut]:
+    rows = _rows(get_conn(), """
+        SELECT id, name, is_current, created_at::text AS created_at
+        FROM wh.planogram.layout
         ORDER BY created_at DESC
     """)
-    return [PlanogramOut(**r) for r in rows]
+    return [LayoutOut(**r) for r in rows]
 
 
-@router.post("/planograms", status_code=201)
-def create_planogram(body: PlanogramIn) -> PlanogramOut:
-    _validate_outlet(body.outlet)
+@router.post("/layouts", status_code=201)
+def create_layout(body: LayoutIn) -> LayoutOut:
     conn = get_conn()
-    plan_id = str(uuid.uuid4())
+    layout_id = str(uuid.uuid4())
     _pg_exec(conn, f"""
-        INSERT INTO planogram.planogram (id, outlet, name, description, status)
-        VALUES ('{plan_id}', '{_esc(body.outlet)}', '{_esc(body.name)}', '{_esc(body.description)}', 'draft')
+        INSERT INTO planogram.layout (id, name, is_current)
+        VALUES ('{layout_id}', '{_esc(body.name)}', false)
     """)
-    rows = _rows(conn, f"""
-        SELECT id, outlet, name, description, status,
-               created_at::text AS created_at, updated_at::text AS updated_at
-        FROM wh.planogram.planogram WHERE id = '{plan_id}'
-    """)
-    return PlanogramOut(**rows[0])
+    return _load_layout(conn, layout_id)
 
 
-@router.get("/planograms/{plan_id}")
-def get_planogram(plan_id: str) -> PlanogramDetail:
+@router.get("/layouts/{layout_id}")
+def get_layout(layout_id: str) -> LayoutDetail:
     conn = get_conn()
-    rows = _rows(conn, f"""
-        SELECT id, outlet, name, description, status,
-               created_at::text AS created_at, updated_at::text AS updated_at
-        FROM wh.planogram.planogram WHERE id = '{_esc(plan_id)}'
+    base = _load_layout(conn, layout_id)
+    outlet_rows = _rows(conn, f"""
+        SELECT b.outlet,
+               COUNT(DISTINCT b.id) AS bay_count,
+               COUNT(DISTINCT p.id) AS planogram_count
+        FROM wh.planogram.bay b
+        LEFT JOIN wh.planogram.planogram p
+               ON p.bay_id = b.id AND p.layout_id = '{_esc(layout_id)}'
+        GROUP BY b.outlet
+        ORDER BY b.outlet
     """)
-    if not rows:
-        raise HTTPException(status_code=404, detail="Planogram not found")
-    placements = _rows(conn, f"""
-        SELECT bay_id, shelf_index, slot_index, sku
-        FROM wh.planogram.placement
-        WHERE planogram_id = '{_esc(plan_id)}'
-    """)
-    return PlanogramDetail(**rows[0], placements=[PlacementIn(**p) for p in placements])
-
-
-@router.post("/planograms/{plan_id}/save")
-def save_planogram(plan_id: str, placements: list[PlacementIn]):
-    conn = get_conn()
-    _pg_exec(conn, f"DELETE FROM planogram.placement WHERE planogram_id = '{_esc(plan_id)}'")
-    if placements:
-        values = ", ".join(
-            f"('{_esc(plan_id)}', '{_esc(p.bay_id)}', {p.shelf_index}, {p.slot_index}, '{_esc(p.sku)}')"
-            for p in placements
+    outlets = [
+        OutletSummary(
+            outlet=r["outlet"],
+            bay_count=int(r["bay_count"]),
+            planogram_count=int(r["planogram_count"]),
         )
-        _pg_exec(conn, f"""
-            INSERT INTO planogram.placement (planogram_id, bay_id, shelf_index, slot_index, sku)
-            VALUES {values}
-        """)
-    _pg_exec(conn, f"UPDATE planogram.planogram SET updated_at = now() WHERE id = '{_esc(plan_id)}'")
-    return {"status": "ok"}
+        for r in outlet_rows
+    ]
+    return LayoutDetail(**base.model_dump(), outlets=outlets)
 
 
-@router.post("/planograms/{plan_id}/activate")
-def activate_planogram(plan_id: str) -> PlanogramOut:
+@router.patch("/layouts/{layout_id}")
+def update_layout(layout_id: str, body: LayoutPatchIn) -> LayoutOut:
     conn = get_conn()
-    rows = _rows(conn, f"SELECT outlet FROM wh.planogram.planogram WHERE id = '{_esc(plan_id)}'")
-    if not rows:
-        raise HTTPException(status_code=404, detail="Planogram not found")
-    outlet = rows[0]["outlet"]
-    # archive current active
-    _pg_exec(conn, f"""
-        UPDATE planogram.planogram
-        SET status = 'archived', updated_at = now()
-        WHERE outlet = '{_esc(outlet)}' AND status = 'active'
-    """)
-    # activate this one
-    _pg_exec(conn, f"""
-        UPDATE planogram.planogram
-        SET status = 'active', updated_at = now()
-        WHERE id = '{_esc(plan_id)}'
-    """)
-    updated = _rows(conn, f"""
-        SELECT id, outlet, name, description, status,
-               created_at::text AS created_at, updated_at::text AS updated_at
-        FROM wh.planogram.planogram WHERE id = '{_esc(plan_id)}'
-    """)
-    return PlanogramOut(**updated[0])
+    _load_layout(conn, layout_id)  # 404 if missing
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="name is required")
+        _pg_exec(conn, f"UPDATE planogram.layout SET name = '{_esc(name)}' WHERE id = '{_esc(layout_id)}'")
+    if body.is_current is True:
+        _pg_exec(conn, "UPDATE planogram.layout SET is_current = false")
+        _pg_exec(conn, f"UPDATE planogram.layout SET is_current = true WHERE id = '{_esc(layout_id)}'")
+    return _load_layout(conn, layout_id)
 
 
-class RenamePlanogramIn(BaseModel):
-    name: str
+@router.delete("/layouts/{layout_id}", status_code=204)
+def delete_layout(layout_id: str) -> None:
+    _pg_exec(get_conn(), f"DELETE FROM planogram.layout WHERE id = '{_esc(layout_id)}'")
 
 
-@router.patch("/planograms/{plan_id}")
-def rename_planogram(plan_id: str, body: RenamePlanogramIn) -> PlanogramOut:
-    name = body.name.strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="name is required")
+# --- bay planogram endpoints (bay-level layout within a layout version) ---
+
+@router.get("/layouts/{layout_id}/outlets/{outlet}/bays")
+def list_outlet_bays(layout_id: str, outlet: str) -> list[BayPlanogramSummary]:
+    _validate_outlet(outlet)
     conn = get_conn()
-    _pg_exec(conn, f"""
-        UPDATE planogram.planogram SET name = '{_esc(name)}', updated_at = now()
-        WHERE id = '{_esc(plan_id)}'
-    """)
     rows = _rows(conn, f"""
-        SELECT id, outlet, name, description, status,
-               created_at::text AS created_at, updated_at::text AS updated_at
-        FROM wh.planogram.planogram WHERE id = '{_esc(plan_id)}'
+        SELECT b.id AS bay_id, b.name AS bay_name,
+               p.id IS NOT NULL AS has_planogram,
+               COUNT(ps.shelf_index) AS shelf_count
+        FROM wh.planogram.bay b
+        LEFT JOIN wh.planogram.planogram p
+               ON p.bay_id = b.id AND p.layout_id = '{_esc(layout_id)}'
+        LEFT JOIN wh.planogram.planogram_shelf ps ON ps.planogram_id = p.id
+        WHERE b.outlet = '{_esc(outlet)}'
+        GROUP BY b.id, b.name, b.sort_order, p.id
+        ORDER BY b.sort_order
     """)
-    if not rows:
-        raise HTTPException(status_code=404, detail="Planogram not found")
-    return PlanogramOut(**rows[0])
+    return [
+        BayPlanogramSummary(
+            bay_id=r["bay_id"],
+            bay_name=r["bay_name"],
+            has_planogram=bool(r["has_planogram"]),
+            shelf_count=int(r["shelf_count"]),
+        )
+        for r in rows
+    ]
 
 
-@router.delete("/planograms/{plan_id}", status_code=204)
-def delete_planogram(plan_id: str) -> None:
-    _pg_exec(get_conn(), f"DELETE FROM planogram.planogram WHERE id = '{_esc(plan_id)}'")
+@router.get("/layouts/{layout_id}/bays/{bay_id}")
+def get_bay_planogram(layout_id: str, bay_id: str) -> BayPlanogramDetail:
+    conn = get_conn()
+    p_rows = _rows(conn, f"""
+        SELECT id FROM wh.planogram.planogram
+        WHERE layout_id = '{_esc(layout_id)}' AND bay_id = '{_esc(bay_id)}'
+    """)
+
+    if p_rows:
+        planogram_id = p_rows[0]["id"]
+        shelf_rows = _rows(conn, f"""
+            SELECT shelf_index, slot_count FROM wh.planogram.planogram_shelf
+            WHERE planogram_id = '{_esc(planogram_id)}'
+            ORDER BY shelf_index
+        """)
+        placement_rows = _rows(conn, f"""
+            SELECT shelf_index, slot_index, sku FROM wh.planogram.placement
+            WHERE planogram_id = '{_esc(planogram_id)}'
+        """)
+        shelves = [ShelfConfig(**r) for r in shelf_rows]
+        placements = [PlacementIn(**r) for r in placement_rows]
+    else:
+        planogram_id = None
+        # seed shelf config from physical bay template
+        shelf_rows = _rows(conn, f"""
+            SELECT shelf_index, slot_count FROM wh.planogram.bay_shelf
+            WHERE bay_id = '{_esc(bay_id)}'
+            ORDER BY shelf_index
+        """)
+        shelves = [ShelfConfig(**r) for r in shelf_rows]
+        placements = []
+
+    return BayPlanogramDetail(
+        planogram_id=planogram_id,
+        bay_id=bay_id,
+        layout_id=layout_id,
+        shelves=shelves,
+        placements=placements,
+    )
+
+
+class SaveBayPlanogramIn(BaseModel):
+    shelves: list[ShelfConfig]
+    placements: list[PlacementIn]
+
+
+@router.post("/layouts/{layout_id}/bays/{bay_id}/save")
+def save_bay_planogram(layout_id: str, bay_id: str, body: SaveBayPlanogramIn) -> BayPlanogramDetail:
+    conn = get_conn()
+    p_rows = _rows(conn, f"""
+        SELECT id FROM wh.planogram.planogram
+        WHERE layout_id = '{_esc(layout_id)}' AND bay_id = '{_esc(bay_id)}'
+    """)
+    if p_rows:
+        planogram_id = p_rows[0]["id"]
+    else:
+        planogram_id = str(uuid.uuid4())
+        _pg_exec(conn, f"""
+            INSERT INTO planogram.planogram (id, layout_id, bay_id)
+            VALUES ('{planogram_id}', '{_esc(layout_id)}', '{_esc(bay_id)}')
+        """)
+
+    _pg_exec(conn, f"DELETE FROM planogram.planogram_shelf WHERE planogram_id = '{_esc(planogram_id)}'")
+    for s in body.shelves:
+        _pg_exec(conn, f"""
+            INSERT INTO planogram.planogram_shelf (planogram_id, shelf_index, slot_count)
+            VALUES ('{_esc(planogram_id)}', {s.shelf_index}, {s.slot_count})
+        """)
+
+    _pg_exec(conn, f"DELETE FROM planogram.placement WHERE planogram_id = '{_esc(planogram_id)}'")
+    for p in body.placements:
+        _pg_exec(conn, f"""
+            INSERT INTO planogram.placement (planogram_id, shelf_index, slot_index, sku)
+            VALUES ('{_esc(planogram_id)}', {p.shelf_index}, {p.slot_index}, '{_esc(p.sku)}')
+        """)
+
+    return get_bay_planogram(layout_id, bay_id)
+
+
+# --- floor plan endpoints (outlet-level, shared across layout versions) ---
+
+class Vertex(BaseModel):
+    x: float
+    y: float
+
+
+class FloorBayOut(BaseModel):
+    id: str
+    name: str
+    floor_x: float | None
+    floor_y: float | None
+    floor_w: float
+    floor_h: float
+    floor_rotation: int
+
+
+class FloorPlanOut(BaseModel):
+    outlet: str
+    vertices: list[Vertex]
+    bays: list[FloorBayOut]
+
+
+class FloorPlanIn(BaseModel):
+    vertices: list[Vertex]
+
+
+class FloorPositionIn(BaseModel):
+    floor_x: float | None = None
+    floor_y: float | None = None
+    floor_w: float = 3
+    floor_h: float = 2
+    floor_rotation: int = 0
+
+
+@router.get("/floor-plan/{outlet}")
+def get_floor_plan(outlet: str) -> FloorPlanOut:
+    _validate_outlet(outlet)
+    conn = get_conn()
+    rows = _rows(conn, f"SELECT vertices FROM wh.planogram.floor_plan WHERE outlet = '{_esc(outlet)}'")
+    vertices = [Vertex(**v) for v in json.loads(rows[0]["vertices"] if rows else "[]")]
+    bay_rows = _rows(conn, f"""
+        SELECT id, name, floor_x, floor_y, floor_w, floor_h, floor_rotation
+        FROM wh.planogram.bay
+        WHERE outlet = '{_esc(outlet)}'
+        ORDER BY sort_order
+    """)
+    bays = [FloorBayOut(**r) for r in bay_rows]
+    return FloorPlanOut(outlet=outlet, vertices=vertices, bays=bays)
+
+
+@router.put("/floor-plan/{outlet}")
+def save_floor_plan(outlet: str, body: FloorPlanIn) -> FloorPlanOut:
+    _validate_outlet(outlet)
+    conn = get_conn()
+    vertices_json = _esc(json.dumps([v.model_dump() for v in body.vertices]))
+    _pg_exec(conn, f"""
+        INSERT INTO planogram.floor_plan (outlet, vertices)
+        VALUES ('{_esc(outlet)}', '{vertices_json}')
+        ON CONFLICT (outlet) DO UPDATE SET vertices = EXCLUDED.vertices
+    """)
+    return get_floor_plan(outlet)
+
+
+@router.put("/bays/{bay_id}/position", status_code=204)
+def update_bay_position(bay_id: str, body: FloorPositionIn) -> None:
+    floor_x = "NULL" if body.floor_x is None else str(body.floor_x)
+    floor_y = "NULL" if body.floor_y is None else str(body.floor_y)
+    _pg_exec(get_conn(), f"""
+        UPDATE planogram.bay
+        SET floor_x = {floor_x}, floor_y = {floor_y},
+            floor_w = {body.floor_w}, floor_h = {body.floor_h},
+            floor_rotation = {body.floor_rotation}
+        WHERE id = '{_esc(bay_id)}'
+    """)

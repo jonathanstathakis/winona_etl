@@ -1,0 +1,115 @@
+"use client";
+import { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import PrintDialog from "../../components/PrintDialog";
+
+const NAVY = "#1a2b5f";
+const GRID_STEP = 40;
+const CANVAS_W = 30;
+const CANVAS_H = 20;
+
+type Vertex = { x: number; y: number };
+type FloorBay = { id: string; name: string; floor_x: number | null; floor_y: number | null; floor_w: number; floor_h: number; floor_rotation: number };
+type FloorPlanData = { vertices: Vertex[]; bays: FloorBay[] };
+type BayPlanogramSummary = { bay_id: string; bay_name: string; has_planogram: boolean; shelf_count: number };
+
+const smallBtn: React.CSSProperties = {
+  padding: "3px 10px", fontSize: 12, background: "#eee", color: "#333",
+  border: "1px solid #ccc", borderRadius: 4, cursor: "pointer",
+};
+
+export default function OutletHub() {
+  const { id: layoutId, outlet } = useParams<{ id: string; outlet: string }>();
+  const router = useRouter();
+  const [floorPlan, setFloorPlan] = useState<FloorPlanData | null>(null);
+  const [bays, setBays] = useState<BayPlanogramSummary[]>([]);
+  const [printOpen, setPrintOpen] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/planogram/floor-plan/${outlet}`).then((r) => r.json()).then(setFloorPlan);
+    fetch(`/api/planogram/layouts/${layoutId}/outlets/${outlet}/bays`).then((r) => r.json()).then(setBays);
+  }, [layoutId, outlet]);
+
+  const placedBays = floorPlan?.bays.filter((b) => b.floor_x !== null) ?? [];
+  const polygonPoints = floorPlan?.vertices.map((v) => `${v.x * GRID_STEP},${v.y * GRID_STEP}`).join(" ") ?? "";
+  const closed = (floorPlan?.vertices.length ?? 0) >= 3;
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: 24, boxSizing: "border-box", overflow: "hidden" }}>
+      {/* header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexShrink: 0 }}>
+        <button onClick={() => router.push(`/planogram/${layoutId}`)} style={smallBtn}>← Layout</button>
+        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, textTransform: "capitalize", flex: 1 }}>{outlet}</h1>
+        <button onClick={() => setPrintOpen(true)} style={smallBtn}>Print…</button>
+        <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}/floor-plan/edit`)} style={smallBtn}>Edit floor plan</button>
+      </div>
+      <PrintDialog open={printOpen} onClose={() => setPrintOpen(false)} layoutId={layoutId} outlet={outlet} />
+
+      {/* body: floor plan + bay list side by side */}
+      <div style={{ display: "flex", gap: 20, alignItems: "stretch", flex: 1, minHeight: 0 }}>
+
+        {/* floor plan */}
+        <div style={{ flex: 3, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: "#888", marginBottom: 6, flexShrink: 0 }}>Floor Plan</div>
+          <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "flex-start" }}>
+          <div style={{ height: "100%", aspectRatio: `${CANVAS_W}/${CANVAS_H}`, maxWidth: "100%", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden", background: "#f9f9f9" }}>
+            {floorPlan ? (
+              <svg viewBox={`0 0 ${CANVAS_W * GRID_STEP} ${CANVAS_H * GRID_STEP}`}
+                style={{ display: "block", width: "100%", height: "100%" }}>
+                {Array.from({ length: CANVAS_W + 1 }, (_, xi) =>
+                  Array.from({ length: CANVAS_H + 1 }, (_, yi) => (
+                    <circle key={`${xi}-${yi}`} cx={xi * GRID_STEP} cy={yi * GRID_STEP} r={1.5} fill="#ccc" style={{ pointerEvents: "none" }} />
+                  ))
+                )}
+                {closed && <polygon points={polygonPoints} fill={`${NAVY}15`} stroke={NAVY} strokeWidth={2} strokeLinejoin="round" style={{ pointerEvents: "none" }} />}
+                {!closed && (floorPlan.vertices.length >= 2) && <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={2} strokeDasharray="6,4" style={{ pointerEvents: "none" }} />}
+                {placedBays.map((b) => {
+                  const x = (b.floor_x ?? 0) * GRID_STEP;
+                  const y = (b.floor_y ?? 0) * GRID_STEP;
+                  const w = b.floor_w * GRID_STEP;
+                  const h = b.floor_h * GRID_STEP;
+                  return (
+                    <g key={b.id} style={{ cursor: "pointer" }}
+                      onClick={() => router.push(`/planogram/${layoutId}/${outlet}/${b.id}`)}>
+                      <rect x={x} y={y} width={w} height={h} fill="#fff" stroke={NAVY} strokeWidth={2} rx={3} />
+                      <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
+                        fontSize={Math.min(14, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={NAVY}
+                        style={{ userSelect: "none", pointerEvents: "none" }}>{b.name}</text>
+                    </g>
+                  );
+                })}
+              </svg>
+            ) : (
+              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 12, color: "#bbb" }}>Loading…</span>
+              </div>
+            )}
+          </div>
+          </div>
+        </div>
+
+        {/* bay list */}
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: "#888", marginBottom: 6 }}>Bays</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {bays.length === 0 ? (
+              <div style={{ color: "#aaa", fontSize: 13 }}>No bays for {outlet}.</div>
+            ) : bays.map((b) => (
+              <div key={b.bay_id}
+                onClick={() => router.push(`/planogram/${layoutId}/${outlet}/${b.bay_id}`)}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderRadius: 5, cursor: "pointer", border: "1px solid #e8e8e8", background: "#fff" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#f5f5f5")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{b.bay_name}</span>
+                <span style={{ fontSize: 11, padding: "2px 7px", borderRadius: 3, background: b.has_planogram ? "#2a7" : "#e90", color: "#fff" }}>
+                  {b.has_planogram ? "planned" : "empty"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}

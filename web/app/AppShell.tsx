@@ -27,6 +27,7 @@ const NAV = [
   { label: "Wine", href: "/wine", roles: ["superuser", "admin", "viewer"] },
   { label: "Upload", href: "/upload", roles: ["superuser", "admin"] },
   { label: "Data Health", href: "/health", roles: ["superuser", "admin", "viewer"] },
+  { label: "Planogram", href: "/planogram", roles: ["superuser", "admin", "viewer"] },
   { label: "Users", href: "/admin/users", roles: ["superuser"] },
   { label: "Settings", href: "/settings", roles: ["superuser", "admin", "viewer"] },
 ];
