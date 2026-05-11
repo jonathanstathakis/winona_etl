@@ -19,6 +19,7 @@ type FloorBay = {
   floor_w: number;
   floor_h: number;
   floor_rotation: 0 | 90 | 180 | 270;
+  color: string;
 };
 
 type Mode = "place" | "room";
@@ -40,6 +41,18 @@ const btnStyle: React.CSSProperties = {
 
 function snapGrid(px: number): number {
   return Math.round(px / GRID_STEP);
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+}
+
+function labelColor(bg: string): string {
+  const rgb = hexToRgb(bg);
+  if (!rgb) return "#fff";
+  const lum = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
+  return lum > 0.5 ? "#111" : "#fff";
 }
 
 export default function FloorPlanEdit() {
@@ -158,6 +171,12 @@ export default function FloorPlanEdit() {
     setIsDirty(true);
   }
 
+  function handlePropChange(field: "floor_w" | "floor_h" | "color", value: string | number) {
+    if (!selectedBayId) return;
+    setBays((prev) => prev.map((b) => b.id !== selectedBayId ? b : { ...b, [field]: value }));
+    setIsDirty(true);
+  }
+
   async function handleSave() {
     setIsSaving(true);
     try {
@@ -171,7 +190,7 @@ export default function FloorPlanEdit() {
           fetch(`/api/planogram/bays/${b.id}/position`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ floor_x: b.floor_x, floor_y: b.floor_y, floor_w: b.floor_w, floor_h: b.floor_h, floor_rotation: b.floor_rotation }),
+            body: JSON.stringify({ floor_x: b.floor_x, floor_y: b.floor_y, floor_w: b.floor_w, floor_h: b.floor_h, floor_rotation: b.floor_rotation, color: b.color }),
           })
         )
       );
@@ -210,13 +229,6 @@ export default function FloorPlanEdit() {
         {mode === "room" && vertices.length > 0 && (
           <button onClick={() => { setVertices([]); setPolygonClosed(false); setIsDirty(true); }}
             style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Clear room</button>
-        )}
-
-        {selectedBay && selectedBay.floor_x !== null && mode === "place" && (
-          <>
-            <button onClick={handleRotate} style={{ ...btnStyle, borderColor: "#f0a500", color: "#f0a500" }}>Rotate 90°</button>
-            <button onClick={() => handleRemoveBay(selectedBay.id)} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Remove</button>
-          </>
         )}
 
         <span style={{ flex: 1 }} />
@@ -297,14 +309,14 @@ export default function FloorPlanEdit() {
               const isSelected = b.id === selectedBayId;
               return (
                 <g key={b.id}>
-                  <rect x={x} y={y} width={w} height={h} fill="#fff"
-                    stroke={isSelected ? "#f0a500" : NAVY} strokeWidth={isSelected ? 2.5 : 2} rx={3}
+                  <rect x={x} y={y} width={w} height={h} fill={b.color}
+                    stroke={isSelected ? "#f0a500" : "rgba(0,0,0,0.3)"} strokeWidth={isSelected ? 2.5 : 1.5} rx={3}
                     style={{ cursor: mode === "place" ? "grab" : "default" }}
                     onPointerDown={(e) => handleBayPointerDown(e, b)}
                     onPointerMove={handleBayPointerMove}
                     onPointerUp={handleBayPointerUp} />
                   <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
-                    fontSize={Math.min(14, w / b.name.length * 1.6)} fontWeight="bold" fill={NAVY}
+                    fontSize={Math.min(14, w / b.name.length * 1.6)} fontWeight="bold" fill={labelColor(b.color)}
                     style={{ pointerEvents: "none", userSelect: "none" }}>{b.name}</text>
                 </g>
               );
@@ -320,12 +332,45 @@ export default function FloorPlanEdit() {
             ))}
           </svg>
         </div>
+
+        {mode === "place" && selectedBay && selectedBay.floor_x !== null && (
+          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12 }}>
+            <p style={{ fontSize: 11, color: "#888", margin: "0 0 10px", fontWeight: "bold" }}>{selectedBay.name}</p>
+
+            <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+              Width (cm)
+              <input type="number" min={50} max={1000} step={50}
+                value={Math.round(selectedBay.floor_w * CM_PER_GRID)}
+                onChange={(e) => handlePropChange("floor_w", Math.max(1, Math.round(Number(e.target.value) / CM_PER_GRID)))}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
+
+            <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+              Depth (cm)
+              <input type="number" min={50} max={1000} step={50}
+                value={Math.round(selectedBay.floor_h * CM_PER_GRID)}
+                onChange={(e) => handlePropChange("floor_h", Math.max(1, Math.round(Number(e.target.value) / CM_PER_GRID)))}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
+
+            <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 12 }}>
+              Colour
+              <input type="color" value={selectedBay.color}
+                onChange={(e) => handlePropChange("color", e.target.value)}
+                style={{ display: "block", width: "100%", height: 32, marginTop: 3, padding: 2, border: "1px solid #ccc", borderRadius: 4, cursor: "pointer", boxSizing: "border-box" }} />
+            </label>
+
+            <button onClick={handleRotate} style={{ ...btnStyle, width: "100%", marginBottom: 6, borderColor: "#f0a500", color: "#f0a500" }}>Rotate 90°</button>
+            <button onClick={() => handleRemoveBay(selectedBay.id)} style={{ ...btnStyle, width: "100%", borderColor: "#e55", color: "#e55" }}>Remove</button>
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa" }}>
         {mode === "room" && !polygonClosed && "Click the canvas to add vertices. Click near the first vertex (green) to close the polygon."}
         {mode === "room" && polygonClosed && "Drag vertices to adjust. Click \"Edit Room\" again to reopen the polygon."}
-        {mode === "place" && "Click + to place a bay, then drag it into position. Click a placed bay to select it."}
+        {mode === "place" && !selectedBay && "Click + to place a bay, then drag it into position. Click a placed bay to select it."}
+        {mode === "place" && selectedBay && "Drag to reposition. Use the panel to adjust size and colour."}
       </div>
     </div>
   );

@@ -9,9 +9,16 @@ const CANVAS_W = 30;
 const CANVAS_H = 20;
 
 type Vertex = { x: number; y: number };
-type FloorBay = { id: string; name: string; floor_x: number | null; floor_y: number | null; floor_w: number; floor_h: number; floor_rotation: number };
+type FloorBay = { id: string; name: string; floor_x: number | null; floor_y: number | null; floor_w: number; floor_h: number; floor_rotation: number; color: string };
 type FloorPlanData = { vertices: Vertex[]; bays: FloorBay[] };
 type BayPlanogramSummary = { bay_id: string; bay_name: string; has_planogram: boolean; shelf_count: number };
+
+function labelColor(bg: string): string {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(bg);
+  if (!m) return "#fff";
+  const lum = (0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16)) / 255;
+  return lum > 0.5 ? "#111" : "#fff";
+}
 
 const smallBtn: React.CSSProperties = {
   padding: "3px 10px", fontSize: 12, background: "#eee", color: "#333",
@@ -71,9 +78,9 @@ export default function OutletHub() {
                   return (
                     <g key={b.id} style={{ cursor: "pointer" }}
                       onClick={() => router.push(`/planogram/${layoutId}/${outlet}/${b.id}`)}>
-                      <rect x={x} y={y} width={w} height={h} fill="#fff" stroke={NAVY} strokeWidth={2} rx={3} />
+                      <rect x={x} y={y} width={w} height={h} fill={b.color} stroke="rgba(0,0,0,0.2)" strokeWidth={1.5} rx={3} />
                       <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
-                        fontSize={Math.min(14, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={NAVY}
+                        fontSize={Math.min(14, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={labelColor(b.color)}
                         style={{ userSelect: "none", pointerEvents: "none" }}>{b.name}</text>
                     </g>
                   );

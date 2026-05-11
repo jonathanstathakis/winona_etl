@@ -93,4 +93,5 @@ def run_migrations() -> None:
     _ddl(conn, "ALTER TABLE planogram.bay ADD COLUMN IF NOT EXISTS floor_w FLOAT NOT NULL DEFAULT 3")
     _ddl(conn, "ALTER TABLE planogram.bay ADD COLUMN IF NOT EXISTS floor_h FLOAT NOT NULL DEFAULT 2")
     _ddl(conn, "ALTER TABLE planogram.bay ADD COLUMN IF NOT EXISTS floor_rotation INT NOT NULL DEFAULT 0")
+    _ddl(conn, "ALTER TABLE planogram.bay ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#2E5FA3'")
     log.info("Migrations complete.")

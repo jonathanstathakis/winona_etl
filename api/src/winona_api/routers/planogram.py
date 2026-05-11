@@ -400,6 +400,7 @@ class FloorBayOut(BaseModel):
     floor_w: float
     floor_h: float
     floor_rotation: int
+    color: str
 
 
 class FloorPlanOut(BaseModel):
@@ -418,6 +419,7 @@ class FloorPositionIn(BaseModel):
     floor_w: float = 3
     floor_h: float = 2
     floor_rotation: int = 0
+    color: str = "#2E5FA3"
 
 
 @router.get("/floor-plan/{outlet}")
@@ -427,7 +429,7 @@ def get_floor_plan(outlet: str) -> FloorPlanOut:
     rows = _rows(conn, f"SELECT vertices FROM wh.planogram.floor_plan WHERE outlet = '{_esc(outlet)}'")
     vertices = [Vertex(**v) for v in json.loads(rows[0]["vertices"] if rows else "[]")]
     bay_rows = _rows(conn, f"""
-        SELECT id, name, floor_x, floor_y, floor_w, floor_h, floor_rotation
+        SELECT id, name, floor_x, floor_y, floor_w, floor_h, floor_rotation, color
         FROM wh.planogram.bay
         WHERE outlet = '{_esc(outlet)}'
         ORDER BY sort_order
@@ -457,6 +459,7 @@ def update_bay_position(bay_id: str, body: FloorPositionIn) -> None:
         UPDATE planogram.bay
         SET floor_x = {floor_x}, floor_y = {floor_y},
             floor_w = {body.floor_w}, floor_h = {body.floor_h},
-            floor_rotation = {body.floor_rotation}
+            floor_rotation = {body.floor_rotation},
+            color = '{_esc(body.color)}'
         WHERE id = '{_esc(bay_id)}'
     """)
