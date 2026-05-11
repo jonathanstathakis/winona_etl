@@ -6,7 +6,7 @@ const NAVY = "#1a2b5f";
 const CANVAS_W = 2000;  // cm
 const CANVAS_H = 1500;  // cm
 const MIN_ZOOM = 0.05;  // px/cm
-const MAX_ZOOM = 20;    // px/cm
+const MAX_ZOOM = 10;    // px/cm
 
 type Vertex = { x: number; y: number };
 
@@ -22,7 +22,7 @@ type FloorBay = {
 };
 
 type Pan = { x: number; y: number };
-type Mode = "place" | "room";
+type Mode = "place" | "room" | "pan";
 
 type BayDrag = {
   bayId: string;
@@ -155,11 +155,22 @@ export default function FloorPlanEdit() {
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
+  function startPan(e: { clientX: number; clientY: number; pointerId?: number }, target?: Element) {
+    panDragRef.current = { startClientX: e.clientX, startClientY: e.clientY, origPanX: pan.x, origPanY: pan.y };
+    if (target && "pointerId" in e && e.pointerId !== undefined) {
+      (target as Element & { setPointerCapture?: (id: number) => void }).setPointerCapture?.(e.pointerId);
+    }
+  }
+
   function handleBackgroundPointerDown(e: React.PointerEvent<SVGRectElement>) {
     if (mode !== "place") return;
     setSelectedBayId(null);
-    panDragRef.current = { startClientX: e.clientX, startClientY: e.clientY, origPanX: pan.x, origPanY: pan.y };
-    (e.target as Element).setPointerCapture(e.pointerId);
+    startPan(e, e.target as Element);
+  }
+
+  function handleSvgPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    if (mode !== "pan") return;
+    startPan(e, svgRef.current ?? undefined);
   }
 
   function handleSvgPointerMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -291,6 +302,11 @@ export default function FloorPlanEdit() {
           style={{ ...btnStyle, background: mode === "room" ? NAVY : "#eee", color: mode === "room" ? "#fff" : "#333", border: "none" }}>
           Edit Room
         </button>
+        <button onClick={() => setMode("pan")}
+          style={{ ...btnStyle, background: mode === "pan" ? NAVY : "#eee", color: mode === "pan" ? "#fff" : "#333", border: "none" }}
+          title="Hand tool — drag to pan">
+          ✋ Hand
+        </button>
         {mode === "room" && vertices.length >= 3 && !polygonClosed && (
           <button onClick={() => { setPolygonClosed(true); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#2a7", color: "#2a7" }}>Close polygon</button>
         )}
@@ -303,7 +319,7 @@ export default function FloorPlanEdit() {
       </div>
 
       <div style={{ display: "flex", flex: 1, gap: 16, minHeight: 0 }}>
-        {/* unplaced sidebar */}
+        {/* unplaced sidebar — hidden in pan/room modes */}
         {mode === "place" && (
           <div style={{ width: 160, flexShrink: 0, borderRight: "1px solid #ccc", paddingRight: 12, overflowY: "auto" }}>
             <p style={{ fontSize: 11, color: "#888", margin: "0 0 8px", fontWeight: "bold" }}>Unplaced bays</p>
@@ -321,9 +337,11 @@ export default function FloorPlanEdit() {
         {/* canvas */}
         <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden", background: "#f9f9f9", border: "1px solid #ddd" }}>
           <svg ref={svgRef}
-            style={{ display: "block", width: "100%", height: "100%", cursor: mode === "room" && !polygonClosed ? "crosshair" : "default" }}
+            style={{ display: "block", width: "100%", height: "100%",
+              cursor: mode === "pan" ? "grab" : mode === "room" && !polygonClosed ? "crosshair" : "default" }}
             onWheel={handleWheel}
             onClick={handleCanvasClick}
+            onPointerDown={handleSvgPointerDown}
             onPointerMove={handleSvgPointerMove}
             onPointerUp={handleSvgPointerUp}>
 
@@ -339,7 +357,7 @@ export default function FloorPlanEdit() {
               {/* adaptive grid dots */}
               {gridXs.flatMap((x) =>
                 gridYs.map((y) => (
-                  <circle key={`${x}-${y}`} cx={x} cy={y} r={Math.max(0.5, 1 / zoom)} fill="#ccc" style={{ pointerEvents: "none" }} />
+                  <circle key={`${x}-${y}`} cx={x} cy={y} r={1.5 / zoom} fill="#ccc" style={{ pointerEvents: "none" }} />
                 ))
               )}
 
@@ -402,16 +420,20 @@ export default function FloorPlanEdit() {
             <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
               Width (cm)
               <input type="number" min={10} max={2000} step={10}
-                value={selectedBay.floor_w}
-                onChange={(e) => handlePropChange("floor_w", Math.max(10, Number(e.target.value)))}
+                key={`${selectedBayId}-w`}
+                defaultValue={selectedBay.floor_w}
+                onBlur={(e) => handlePropChange("floor_w", Math.max(10, Number(e.target.value) || 10))}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                 style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
             </label>
 
             <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
               Depth (cm)
               <input type="number" min={10} max={2000} step={10}
-                value={selectedBay.floor_h}
-                onChange={(e) => handlePropChange("floor_h", Math.max(10, Number(e.target.value)))}
+                key={`${selectedBayId}-h`}
+                defaultValue={selectedBay.floor_h}
+                onBlur={(e) => handlePropChange("floor_h", Math.max(10, Number(e.target.value) || 10))}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                 style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
             </label>
 
@@ -435,6 +457,7 @@ export default function FloorPlanEdit() {
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa" }}>
         {mode === "room" && !polygonClosed && "Click to add vertices. Click near the first vertex (green) to close."}
         {mode === "room" && polygonClosed && "Drag vertices to adjust. Click \"Edit Room\" to reopen."}
+        {mode === "pan" && "Drag anywhere to pan · scroll to zoom · switch to Place Bays to move bays."}
         {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
         {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
       </div>
