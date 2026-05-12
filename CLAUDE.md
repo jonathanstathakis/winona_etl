@@ -157,3 +157,5 @@ Layout → Outlets (3) → Bays → Planogram → Shelves → Slots → Products
 - `transfer/page.tsx`: Add "create new" button (clears grid, transferName, currentTransferId)
 - `transfer/page.tsx`: Fix AG Grid column order reset on quantity cell edit
 - `transfer/page.tsx`: Fix "Saved!" status not resetting when grid cell values change (needs `onCellValueChanged`)
+- `floor-plan/edit/page.tsx`: Show full bay list (all outlets) somewhere in the floor plan designer for reference
+- `[id]/[outlet]/[bayId]/page.tsx`: Bay planogram editor should show all bays in the outlet as a list/nav so you can switch between them without going back to the outlet hub

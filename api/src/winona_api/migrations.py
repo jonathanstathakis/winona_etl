@@ -97,4 +97,7 @@ def run_migrations() -> None:
     # convert floor coords from grid-units (50cm each) to cm — idempotent (only runs if values are small)
     _ddl(conn, "UPDATE planogram.bay SET floor_w = floor_w * 50, floor_h = floor_h * 50 WHERE floor_w < 50")
     _ddl(conn, "UPDATE planogram.bay SET floor_x = floor_x * 50, floor_y = floor_y * 50 WHERE floor_x IS NOT NULL AND floor_x < 1000")
+    # fix column defaults so new bays get sensible cm sizes
+    _ddl(conn, "ALTER TABLE planogram.bay ALTER COLUMN floor_w SET DEFAULT 50")
+    _ddl(conn, "ALTER TABLE planogram.bay ALTER COLUMN floor_h SET DEFAULT 100")
     log.info("Migrations complete.")

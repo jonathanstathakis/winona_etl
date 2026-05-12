@@ -19,6 +19,25 @@ function labelColor(bg: string): string {
   return lum > 0.5 ? "#111" : "#fff";
 }
 
+function computeBounds(vertices: Vertex[], bays: FloorBay[], padding = 80): { viewBox: string; vbW: number } {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const v of vertices) { xs.push(v.x); ys.push(v.y); }
+  for (const b of bays) {
+    if (b.floor_x !== null) {
+      xs.push(b.floor_x, b.floor_x + b.floor_w);
+      ys.push(b.floor_y ?? 0, (b.floor_y ?? 0) + b.floor_h);
+    }
+  }
+  if (xs.length === 0) return { viewBox: `0 0 ${CANVAS_W} ${CANVAS_H}`, vbW: CANVAS_W };
+  const minX = Math.min(...xs) - padding;
+  const minY = Math.min(...ys) - padding;
+  const maxX = Math.max(...xs) + padding;
+  const maxY = Math.max(...ys) + padding;
+  const vbW = maxX - minX;
+  return { viewBox: `${minX} ${minY} ${vbW} ${maxY - minY}`, vbW };
+}
+
 const smallBtn: React.CSSProperties = {
   padding: "3px 10px", fontSize: 12, background: "#eee", color: "#333",
   border: "1px solid #ccc", borderRadius: 4, cursor: "pointer",
@@ -39,6 +58,10 @@ export default function OutletHub() {
   const placedBays = floorPlan?.bays.filter((b) => b.floor_x !== null) ?? [];
   const polygonPoints = floorPlan?.vertices.map((v) => `${v.x},${v.y}`).join(" ") ?? "";
   const closed = (floorPlan?.vertices.length ?? 0) >= 3;
+  const { viewBox, vbW } = floorPlan
+    ? computeBounds(floorPlan.vertices, floorPlan.bays)
+    : { viewBox: `0 0 ${CANVAS_W} ${CANVAS_H}`, vbW: CANVAS_W };
+  const s = vbW / CANVAS_W;
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", padding: 24, boxSizing: "border-box", overflow: "hidden" }}>
@@ -51,46 +74,11 @@ export default function OutletHub() {
       </div>
       <PrintDialog open={printOpen} onClose={() => setPrintOpen(false)} layoutId={layoutId} outlet={outlet} />
 
-      {/* body: floor plan + bay list side by side */}
+      {/* body: bay list + floor plan side by side */}
       <div style={{ display: "flex", gap: 20, alignItems: "stretch", flex: 1, minHeight: 0 }}>
 
-        {/* floor plan */}
-        <div style={{ flex: 3, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
-          <div style={{ fontWeight: 600, fontSize: 13, color: "#888", marginBottom: 6, flexShrink: 0 }}>Floor Plan</div>
-          <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "flex-start" }}>
-          <div style={{ height: "100%", aspectRatio: `${CANVAS_W}/${CANVAS_H}`, maxWidth: "100%", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden", background: "#f9f9f9" }}>
-            {floorPlan ? (
-              <svg viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
-                style={{ display: "block", width: "100%", height: "100%" }}>
-                {closed && <polygon points={polygonPoints} fill={`${NAVY}15`} stroke={NAVY} strokeWidth={8} strokeLinejoin="round" style={{ pointerEvents: "none" }} />}
-                {!closed && (floorPlan.vertices.length >= 2) && <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={8} strokeDasharray="24,16" style={{ pointerEvents: "none" }} />}
-                {placedBays.map((b) => {
-                  const x = b.floor_x ?? 0;
-                  const y = b.floor_y ?? 0;
-                  const w = b.floor_w;
-                  const h = b.floor_h;
-                  return (
-                    <g key={b.id} style={{ cursor: "pointer" }}
-                      onClick={() => router.push(`/planogram/${layoutId}/${outlet}/${b.id}`)}>
-                      <rect x={x} y={y} width={w} height={h} fill={b.color} stroke="rgba(0,0,0,0.2)" strokeWidth={6} rx={12} />
-                      <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
-                        fontSize={Math.min(60, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={labelColor(b.color)}
-                        style={{ userSelect: "none", pointerEvents: "none" }}>{b.name}</text>
-                    </g>
-                  );
-                })}
-              </svg>
-            ) : (
-              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ fontSize: 12, color: "#bbb" }}>Loading…</span>
-              </div>
-            )}
-          </div>
-          </div>
-        </div>
-
         {/* bay list */}
-        <div style={{ flex: 1, minWidth: 180 }}>
+        <div style={{ width: 200, flexShrink: 0, overflowY: "auto" }}>
           <div style={{ fontWeight: 600, fontSize: 13, color: "#888", marginBottom: 6 }}>Bays</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {bays.length === 0 ? (
@@ -107,6 +95,39 @@ export default function OutletHub() {
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* floor plan */}
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: "#888", marginBottom: 6, flexShrink: 0 }}>Floor Plan</div>
+          <div style={{ flex: 1, minHeight: 0, position: "relative", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden", background: "#f9f9f9" }}>
+            {floorPlan ? (
+              <svg viewBox={viewBox}
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+                {closed && <polygon points={polygonPoints} fill={`${NAVY}15`} stroke={NAVY} strokeWidth={8 * s} strokeLinejoin="round" style={{ pointerEvents: "none" }} />}
+                {!closed && (floorPlan.vertices.length >= 2) && <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={8 * s} strokeDasharray={`${24 * s},${16 * s}`} style={{ pointerEvents: "none" }} />}
+                {placedBays.map((b) => {
+                  const x = b.floor_x ?? 0;
+                  const y = b.floor_y ?? 0;
+                  const w = b.floor_w;
+                  const h = b.floor_h;
+                  return (
+                    <g key={b.id} style={{ cursor: "pointer" }}
+                      onClick={() => router.push(`/planogram/${layoutId}/${outlet}/${b.id}`)}>
+                      <rect x={x} y={y} width={w} height={h} fill={b.color} stroke="rgba(0,0,0,0.2)" strokeWidth={6 * s} rx={12 * s} />
+                      <text x={x + w / 2} y={y + h / 2} textAnchor="middle" dominantBaseline="middle"
+                        fontSize={Math.min(60 * s, (w / Math.max(b.name.length, 1)) * 1.6)} fontWeight="bold" fill={labelColor(b.color)}
+                        style={{ userSelect: "none", pointerEvents: "none" }}>{b.name}</text>
+                    </g>
+                  );
+                })}
+              </svg>
+            ) : (
+              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 12, color: "#bbb" }}>Loading…</span>
+              </div>
+            )}
           </div>
         </div>
 

@@ -416,7 +416,7 @@ class FloorPlanIn(BaseModel):
 class FloorPositionIn(BaseModel):
     floor_x: float | None = None
     floor_y: float | None = None
-    floor_w: float = 150
+    floor_w: float = 50
     floor_h: float = 100
     floor_rotation: int = 0
     color: str = "#2E5FA3"

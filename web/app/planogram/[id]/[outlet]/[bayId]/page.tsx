@@ -7,6 +7,7 @@ import { useDraggable, useDroppable } from "@dnd-kit/react";
 
 type Item = { id: string; sku: string; name: string; tags?: string; active?: number };
 type BayLayout = (Item | null)[][];
+type BayNavItem = { id: string; name: string };
 type DropSide = "left" | "right";
 type DragSource = { source: "sidebar" } | { source: "slot"; shelf: number; slot: number };
 type DraggableData = Item & DragSource;
@@ -171,6 +172,7 @@ export default function BayPlanogramEditor() {
   const router = useRouter();
 
   const [bayName, setBayName] = useState<string>("");
+  const [allBays, setAllBays] = useState<BayNavItem[]>([]);
   const [shelves, setShelves] = useState<number[]>([]);
   const [layout, setLayout] = useState<BayLayout>([]);
   const [products, setProducts] = useState<Item[]>([]);
@@ -200,6 +202,7 @@ export default function BayPlanogramEditor() {
 
       const bayMeta = baysData.find((b: any) => b.id === bayId);
       setBayName(bayMeta?.name ?? "");
+      setAllBays(baysData.map((b: any) => ({ id: b.id, name: b.name })));
 
       const shelfCounts = [...(planData.shelves ?? [])].sort((a: any, b: any) => a.shelf_index - b.shelf_index).map((s: any) => s.slot_count);
       setShelves(shelfCounts);
@@ -284,6 +287,10 @@ export default function BayPlanogramEditor() {
         {/* toolbar */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}`)} style={{ ...btnStyle, marginRight: 4 }}>← Floor plan</button>
+          <select value={bayId} onChange={(e) => router.push(`/planogram/${layoutId}/${outlet}/${e.target.value}`)}
+            style={{ padding: "4px 8px", fontSize: 13, border: "1px solid #ccc", borderRadius: 4, cursor: "pointer" }}>
+            {allBays.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
           <button onClick={() => setPrintOpen(true)} style={btnStyle}>Print…</button>
           <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{bayName || "Bay"}</h1>
           <div style={{ flex: 1 }} />
