@@ -48,7 +48,7 @@ const btnStyle: React.CSSProperties = {
 };
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
-function snap(v: number) { return Math.round(v); }
+
 
 function hexToRgb(hex: string) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -98,7 +98,7 @@ export default function FloorPlanEdit() {
   // derived early so handlers can close over it
   const gridStep = ([1, 10, 100, 1000] as const).find((s) => s * zoom >= 8) ?? 1000;
 
-  function snapBay(v: number): number {
+  function snapGrid(v: number): number {
     return gridSnap ? Math.round(v / gridStep) * gridStep : Math.round(v);
   }
 
@@ -213,7 +213,7 @@ export default function FloorPlanEdit() {
     const target = e.target as SVGElement;
     if (target.getAttribute("data-vertex") || target.getAttribute("data-bay")) return;
     const { x, y } = worldCoords(e);
-    const snapped = { x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) };
+    const snapped = { x: clamp(snapGrid(x), 0, CANVAS_W), y: clamp(snapGrid(y), 0, CANVAS_H) };
 
     if (polygonClosed) {
       // insert vertex on nearest edge if within 15 screen-pixels
@@ -227,7 +227,7 @@ export default function FloorPlanEdit() {
       if (bestDist <= threshold) {
         pushHistory(vertices, bays, polygonClosed);
         const inserted = [...vertices];
-        inserted.splice(bestIdx + 1, 0, { x: clamp(snap(bestX), 0, CANVAS_W), y: clamp(snap(bestY), 0, CANVAS_H) });
+        inserted.splice(bestIdx + 1, 0, { x: clamp(snapGrid(bestX), 0, CANVAS_W), y: clamp(snapGrid(bestY), 0, CANVAS_H) });
         setVertices(inserted);
         setIsDirty(true);
       }
@@ -281,8 +281,8 @@ export default function FloorPlanEdit() {
     const bd = bayDragRef.current;
     if (bd) {
       const { x, y } = worldCoords(e);
-      const newX = clamp(snapBay(bd.origFloorX + x - bd.startWorldX), 0, CANVAS_W);
-      const newY = clamp(snapBay(bd.origFloorY + y - bd.startWorldY), 0, CANVAS_H);
+      const newX = clamp(snapGrid(bd.origFloorX + x - bd.startWorldX), 0, CANVAS_W);
+      const newY = clamp(snapGrid(bd.origFloorY + y - bd.startWorldY), 0, CANVAS_H);
       setBays((prev) => prev.map((b) => b.id === bd.bayId ? { ...b, floor_x: newX, floor_y: newY } : b));
       setDragCoord({ x: newX, y: newY });
       setIsDirty(true);
@@ -297,13 +297,13 @@ export default function FloorPlanEdit() {
     const vd = vertexDragRef.current;
     if (vd) {
       const { x, y } = worldCoords(e);
-      const snapped = { x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) };
+      const snapped = { x: clamp(snapGrid(x), 0, CANVAS_W), y: clamp(snapGrid(y), 0, CANVAS_H) };
       setVertices((prev) => prev.map((v, i) => i === vd.index ? snapped : v));
       setIsDirty(true);
     }
     // always show cursor world position (bay drag sets its own coord and returns early above)
     const { x, y } = worldCoords(e);
-    setDragCoord({ x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) });
+    setDragCoord({ x: clamp(snapGrid(x), 0, CANVAS_W), y: clamp(snapGrid(y), 0, CANVAS_H) });
   }
 
   function handleSvgPointerUp() {
@@ -321,8 +321,8 @@ export default function FloorPlanEdit() {
 
   function handlePlaceBay(bay: FloorBay) {
     pushHistory(vertices, bays, polygonClosed);
-    const cx = clamp(snapBay(CANVAS_W / 2 - bay.floor_w / 2), 0, CANVAS_W);
-    const cy = clamp(snapBay(CANVAS_H / 2 - bay.floor_h / 2), 0, CANVAS_H);
+    const cx = clamp(snapGrid(CANVAS_W / 2 - bay.floor_w / 2), 0, CANVAS_W);
+    const cy = clamp(snapGrid(CANVAS_H / 2 - bay.floor_h / 2), 0, CANVAS_H);
     setBays((prev) => prev.map((b) => b.id === bay.id ? { ...b, floor_x: cx, floor_y: cy } : b));
     setSelectedBayId(bay.id);
     setIsDirty(true);
