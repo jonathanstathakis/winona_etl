@@ -182,6 +182,8 @@ export default function FloorPlanEdit() {
     };
   }
 
+  // TODO: page scrolls when zooming via scroll wheel on canvas — e.preventDefault() has no effect
+  // because React registers wheel listeners as passive; fix by attaching a non-passive listener via useEffect.
   function handleWheel(e: React.WheelEvent<SVGSVGElement>) {
     e.preventDefault();
     const rect = svgRef.current!.getBoundingClientRect();
@@ -398,7 +400,7 @@ export default function FloorPlanEdit() {
   const selectedBay = bays.find((b) => b.id === selectedBayId) ?? null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh", padding: 16, boxSizing: "border-box", overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, padding: 16, boxSizing: "border-box", overflow: "hidden" }}>
       {/* toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
         <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}/floor-plan`)} style={btnStyle}>← Floor plan</button>
