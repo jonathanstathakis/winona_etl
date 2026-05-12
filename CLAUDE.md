@@ -159,3 +159,8 @@ Layout → Outlets (3) → Bays → Planogram → Shelves → Slots → Products
 - `transfer/page.tsx`: Fix "Saved!" status not resetting when grid cell values change (needs `onCellValueChanged`)
 - `floor-plan/edit/page.tsx`: Show full bay list (all outlets) somewhere in the floor plan designer for reference
 - `[id]/[outlet]/[bayId]/page.tsx`: Bay planogram editor should show all bays in the outlet as a list/nav so you can switch between them without going back to the outlet hub
+- `floor-plan/edit/page.tsx`: Add icon catalog — placeable objects for computer workstations, VM/display screens, doors
+- `floor-plan/edit/page.tsx`: Add drag-to-resize for placed bay objects (resize handles on selected bay)
+- `floor-plan/edit/page.tsx`, `[outlet]/page.tsx`: Add floor plan export (SVG/PDF download)
+- `[id]/[outlet]/[bayId]/page.tsx`, `components/PrintDialog.tsx`: Test and finalise printing — bay planogram print, floor plan print
+- `floor-plan/edit/page.tsx`: Fix page scrolling when zooming via scroll wheel on canvas — React registers wheel listeners as passive so e.preventDefault() has no effect; fix with a non-passive useEffect listener
