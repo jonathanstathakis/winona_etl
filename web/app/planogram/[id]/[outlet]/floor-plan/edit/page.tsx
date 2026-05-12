@@ -299,16 +299,17 @@ export default function FloorPlanEdit() {
       const { x, y } = worldCoords(e);
       const snapped = { x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) };
       setVertices((prev) => prev.map((v, i) => i === vd.index ? snapped : v));
-      setDragCoord(snapped);
       setIsDirty(true);
     }
+    // always show cursor world position (bay drag sets its own coord and returns early above)
+    const { x, y } = worldCoords(e);
+    setDragCoord({ x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) });
   }
 
   function handleSvgPointerUp() {
     bayDragRef.current = null;
     panDragRef.current = null;
     vertexDragRef.current = null;
-    setDragCoord(null);
   }
 
   function handleVertexPointerDown(e: React.PointerEvent<SVGCircleElement>, index: number) {
@@ -481,7 +482,8 @@ export default function FloorPlanEdit() {
             onClick={handleCanvasClick}
             onPointerDown={handleSvgPointerDown}
             onPointerMove={handleSvgPointerMove}
-            onPointerUp={handleSvgPointerUp}>
+            onPointerUp={handleSvgPointerUp}
+            onPointerLeave={() => setDragCoord(null)}>
 
             <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
               {/* canvas boundary */}
@@ -592,17 +594,19 @@ export default function FloorPlanEdit() {
         )}
       </div>
 
-      <div style={{ marginTop: 8, fontSize: 11, color: "#aaa" }}>
-        {dragCoord
-          ? <span style={{ color: "#555", fontVariantNumeric: "tabular-nums" }}>x: {dragCoord.x} cm &nbsp; y: {dragCoord.y} cm</span>
-          : <>
-            {mode === "room" && !polygonClosed && "Click to add vertices. Click near the first vertex (green) to close. Click on an edge of a closed polygon to insert a node."}
-            {mode === "room" && polygonClosed && "Drag vertices to adjust. Click on an edge to insert a node. Click \"Edit Room\" to add more."}
-            {mode === "pan" && "Drag anywhere to pan · scroll to zoom · switch to Place Bays to move bays."}
-            {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
-            {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
-          </>
-        }
+      <div style={{ marginTop: 8, fontSize: 11, color: "#aaa", display: "flex", justifyContent: "space-between" }}>
+        <span>
+          {mode === "room" && !polygonClosed && "Click to add vertices. Click near the first vertex (green) to close. Click on an edge of a closed polygon to insert a node."}
+          {mode === "room" && polygonClosed && "Drag vertices to adjust. Click on an edge to insert a node. Click \"Edit Room\" to add more."}
+          {mode === "pan" && "Drag anywhere to pan · scroll to zoom · switch to Place Bays to move bays."}
+          {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
+          {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
+        </span>
+        {dragCoord && (
+          <span style={{ color: "#555", fontVariantNumeric: "tabular-nums", flexShrink: 0, marginLeft: 16 }}>
+            x: {dragCoord.x} cm &nbsp; y: {dragCoord.y} cm
+          </span>
+        )}
       </div>
     </div>
   );
