@@ -7,6 +7,7 @@ const CANVAS_W = 2000;  // cm
 const CANVAS_H = 1500;  // cm
 const MIN_ZOOM = 0.05;  // px/cm
 const MAX_ZOOM = 10;    // px/cm
+const LOG_RANGE = Math.log(MAX_ZOOM / MIN_ZOOM);
 
 type Vertex = { x: number; y: number };
 
@@ -92,6 +93,14 @@ export default function FloorPlanEdit() {
   const [pan, setPan] = useState<Pan>({ x: 20, y: 20 });
   const [dragCoord, setDragCoord] = useState<{ x: number; y: number } | null>(null);
   const [histVersion, setHistVersion] = useState(0);
+  const [gridSnap, setGridSnap] = useState(false);
+
+  // derived early so handlers can close over it
+  const gridStep = ([1, 10, 100, 1000] as const).find((s) => s * zoom >= 8) ?? 1000;
+
+  function snapBay(v: number): number {
+    return gridSnap ? Math.round(v / gridStep) * gridStep : Math.round(v);
+  }
 
   useEffect(() => {
     fetch(`/api/planogram/floor-plan/${outlet}`)
@@ -178,10 +187,22 @@ export default function FloorPlanEdit() {
     const rect = svgRef.current!.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
     const newZoom = clamp(zoom * factor, MIN_ZOOM, MAX_ZOOM);
     const scale = newZoom / zoom;
     setPan((p) => ({ x: mx - (mx - p.x) * scale, y: my - (my - p.y) * scale }));
+    setZoom(newZoom);
+  }
+
+  function handleSliderChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const t = parseFloat(e.target.value);
+    const newZoom = clamp(MIN_ZOOM * Math.exp(t * LOG_RANGE), MIN_ZOOM, MAX_ZOOM);
+    const svg = svgRef.current;
+    if (svg) {
+      const { width: sw, height: sh } = svg.getBoundingClientRect();
+      const scale = newZoom / zoom;
+      setPan((p) => ({ x: sw / 2 - (sw / 2 - p.x) * scale, y: sh / 2 - (sh / 2 - p.y) * scale }));
+    }
     setZoom(newZoom);
   }
 
@@ -258,8 +279,8 @@ export default function FloorPlanEdit() {
     const bd = bayDragRef.current;
     if (bd) {
       const { x, y } = worldCoords(e);
-      const newX = clamp(snap(bd.origFloorX + x - bd.startWorldX), 0, CANVAS_W);
-      const newY = clamp(snap(bd.origFloorY + y - bd.startWorldY), 0, CANVAS_H);
+      const newX = clamp(snapBay(bd.origFloorX + x - bd.startWorldX), 0, CANVAS_W);
+      const newY = clamp(snapBay(bd.origFloorY + y - bd.startWorldY), 0, CANVAS_H);
       setBays((prev) => prev.map((b) => b.id === bd.bayId ? { ...b, floor_x: newX, floor_y: newY } : b));
       setDragCoord({ x: newX, y: newY });
       setIsDirty(true);
@@ -297,8 +318,8 @@ export default function FloorPlanEdit() {
 
   function handlePlaceBay(bay: FloorBay) {
     pushHistory(vertices, bays, polygonClosed);
-    const cx = clamp(Math.round(CANVAS_W / 2 - bay.floor_w / 2), 0, CANVAS_W);
-    const cy = clamp(Math.round(CANVAS_H / 2 - bay.floor_h / 2), 0, CANVAS_H);
+    const cx = clamp(snapBay(CANVAS_W / 2 - bay.floor_w / 2), 0, CANVAS_W);
+    const cy = clamp(snapBay(CANVAS_H / 2 - bay.floor_h / 2), 0, CANVAS_H);
     setBays((prev) => prev.map((b) => b.id === bay.id ? { ...b, floor_x: cx, floor_y: cy } : b));
     setSelectedBayId(bay.id);
     setIsDirty(true);
@@ -355,8 +376,6 @@ export default function FloorPlanEdit() {
   const canUndo = histVersion >= 0 && histIdxRef.current > 0;
   const canRedo = histVersion >= 0 && histIdxRef.current < historyRef.current.length - 1;
 
-  // adaptive grid: choose step so dots are at least 8px apart
-  const gridStep = ([1, 10, 100, 1000] as const).find((s) => s * zoom >= 8) ?? 1000;
   const labelStep = gridStep * 10;
 
   // visible world rect (clipped to canvas)
@@ -409,6 +428,16 @@ export default function FloorPlanEdit() {
         )}
         <span style={{ flex: 1 }} />
         <button onClick={fitToRoom} style={btnStyle}>Fit</button>
+        <button onClick={() => setGridSnap((v) => !v)}
+          style={{ ...btnStyle, background: gridSnap ? NAVY : "#eee", color: gridSnap ? "#fff" : "#333", border: "none" }}
+          title="Snap bays to visible grid">
+          ⊞ {gridSnap ? `${gridStep}cm` : "1cm"}
+        </button>
+        <input type="range" min={0} max={1} step={0.001}
+          value={Math.log(zoom / MIN_ZOOM) / LOG_RANGE}
+          onChange={handleSliderChange}
+          style={{ width: 120, cursor: "pointer", verticalAlign: "middle" }} />
+        <span style={{ fontSize: 11, color: "#666", minWidth: 56, textAlign: "right" }}>{Math.round(zoom * 100) / 100} px/cm</span>
         <button onClick={handleSave} disabled={!isDirty || isSaving} style={btnStyle}>{isSaving ? "Saving…" : "Save"}</button>
       </div>
 
@@ -513,9 +542,9 @@ export default function FloorPlanEdit() {
             </g>
           </svg>
 
-          {/* zoom level badge */}
+          {/* snap level badge */}
           <div style={{ position: "absolute", bottom: 8, right: 8, fontSize: 10, color: "#aaa", background: "rgba(255,255,255,0.8)", padding: "2px 6px", borderRadius: 3, pointerEvents: "none" }}>
-            {Math.round(zoom * 100) / 100} px/cm · snap {gridStep} cm
+            snap {gridStep} cm
           </div>
         </div>
 
