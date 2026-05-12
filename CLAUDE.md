@@ -164,3 +164,4 @@ Layout → Outlets (3) → Bays → Planogram → Shelves → Slots → Products
 - `floor-plan/edit/page.tsx`, `[outlet]/page.tsx`: Add floor plan export (SVG/PDF download)
 - `[id]/[outlet]/[bayId]/page.tsx`, `components/PrintDialog.tsx`: Test and finalise printing — bay planogram print, floor plan print
 - `floor-plan/edit/page.tsx`: Fix page scrolling when zooming via scroll wheel on canvas — React registers wheel listeners as passive so e.preventDefault() has no effect; fix with a non-passive useEffect listener
+- `floor-plan/edit/page.tsx`: Add ability to delete individual polygon vertices in Edit Room mode (e.g. select vertex + Delete key, or right-click context menu)
