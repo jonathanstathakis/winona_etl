@@ -70,6 +70,11 @@ function distToSegment(px: number, py: number, x1: number, y1: number, x2: numbe
   return { dist: Math.hypot(px - nx, py - ny), x: nx, y: ny };
 }
 
+const DEFAULT_ROOM: Vertex[] = [
+  { x: 900, y: 650 }, { x: 1100, y: 650 },
+  { x: 1100, y: 850 }, { x: 900, y: 850 },
+];
+
 export default function FloorPlanEdit() {
   const { id: layoutId, outlet } = useParams<{ id: string; outlet: string }>();
   const router = useRouter();
@@ -78,14 +83,14 @@ export default function FloorPlanEdit() {
   const bayDragRef = useRef<BayDrag | null>(null);
   const panDragRef = useRef<PanDrag | null>(null);
   const vertexDragRef = useRef<VertexDrag | null>(null);
-  const historyRef = useRef<Array<{ vertices: Vertex[]; bays: FloorBay[]; polygonClosed: boolean }>>([]);
+  const historyRef = useRef<Array<{ vertices: Vertex[]; bays: FloorBay[] }>>([]);
   const histIdxRef = useRef(-1);
 
   const [vertices, setVertices] = useState<Vertex[]>([]);
-  const [polygonClosed, setPolygonClosed] = useState(false);
   const [bays, setBays] = useState<FloorBay[]>([]);
   const [mode, setMode] = useState<Mode>("place");
   const [selectedBayId, setSelectedBayId] = useState<string | null>(null);
+  const [selectedVertexIdx, setSelectedVertexIdx] = useState<number | null>(null);
   const [bayListFilter, setBayListFilter] = useState<"all" | "placed" | "unplaced">("unplaced");
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -106,11 +111,11 @@ export default function FloorPlanEdit() {
     fetch(`/api/planogram/floor-plan/${outlet}`)
       .then((r) => r.json())
       .then((data) => {
-        setVertices(data.vertices);
-        setPolygonClosed(data.vertices.length >= 3);
+        const verts = data.vertices.length >= 3 ? data.vertices : DEFAULT_ROOM;
+        setVertices(verts);
         setBays(data.bays);
-        setIsDirty(false);
-        historyRef.current = [{ vertices: data.vertices, bays: data.bays, polygonClosed: data.vertices.length >= 3 }];
+        setIsDirty(data.vertices.length < 3);
+        historyRef.current = [{ vertices: verts, bays: data.bays }];
         histIdxRef.current = 0;
         setHistVersion(0);
         fitToRoom();
@@ -134,9 +139,9 @@ export default function FloorPlanEdit() {
     return () => clearTimeout(t);
   }, [fitToRoom]);
 
-  function pushHistory(verts: Vertex[], b: FloorBay[], closed: boolean) {
+  function pushHistory(verts: Vertex[], b: FloorBay[]) {
     historyRef.current = historyRef.current.slice(0, histIdxRef.current + 1);
-    historyRef.current.push({ vertices: [...verts], bays: [...b], polygonClosed: closed });
+    historyRef.current.push({ vertices: [...verts], bays: [...b] });
     histIdxRef.current++;
     setHistVersion((n) => n + 1);
   }
@@ -147,7 +152,6 @@ export default function FloorPlanEdit() {
     const s = historyRef.current[histIdxRef.current];
     setVertices(s.vertices);
     setBays(s.bays);
-    setPolygonClosed(s.polygonClosed);
     setIsDirty(true);
     setHistVersion((n) => n + 1);
   }, []);
@@ -158,13 +162,13 @@ export default function FloorPlanEdit() {
     const s = historyRef.current[histIdxRef.current];
     setVertices(s.vertices);
     setBays(s.bays);
-    setPolygonClosed(s.polygonClosed);
     setIsDirty(true);
     setHistVersion((n) => n + 1);
   }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") { setSelectedVertexIdx(null); return; }
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
       if (e.key === "z" && e.shiftKey)  { e.preventDefault(); redo(); }
@@ -173,6 +177,21 @@ export default function FloorPlanEdit() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo]);
+
+  useEffect(() => {
+    function onDelete(e: KeyboardEvent) {
+      if ((e.key === "Delete" || e.key === "Backspace") && mode === "room" && selectedVertexIdx !== null) {
+        e.preventDefault();
+        if (vertices.length <= 3) return; // minimum triangle
+        pushHistory(vertices, bays);
+        setVertices(vertices.filter((_, i) => i !== selectedVertexIdx));
+        setSelectedVertexIdx(null);
+        setIsDirty(true);
+      }
+    }
+    window.addEventListener("keydown", onDelete);
+    return () => window.removeEventListener("keydown", onDelete);
+  }, [mode, vertices, selectedVertexIdx, bays]);
 
   function worldCoords(e: { clientX: number; clientY: number }): { x: number; y: number } {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -209,49 +228,32 @@ export default function FloorPlanEdit() {
   }
 
   function handleCanvasClick(e: React.MouseEvent<SVGSVGElement>) {
-    if (mode !== "room") return;
+    if (mode !== "room" || vertices.length < 3) return;
     const target = e.target as SVGElement;
     if (target.getAttribute("data-vertex") || target.getAttribute("data-bay")) return;
     const { x, y } = worldCoords(e);
-    const snapped = { x: clamp(snapGrid(x), 0, CANVAS_W), y: clamp(snapGrid(y), 0, CANVAS_H) };
-
-    if (polygonClosed) {
-      // insert vertex on nearest edge if within 15 screen-pixels
-      const threshold = 15 / zoom;
-      let bestDist = Infinity, bestIdx = -1, bestX = 0, bestY = 0;
-      for (let i = 0; i < vertices.length; i++) {
-        const j = (i + 1) % vertices.length;
-        const r = distToSegment(x, y, vertices[i].x, vertices[i].y, vertices[j].x, vertices[j].y);
-        if (r.dist < bestDist) { bestDist = r.dist; bestIdx = i; bestX = r.x; bestY = r.y; }
-      }
-      if (bestDist <= threshold) {
-        pushHistory(vertices, bays, polygonClosed);
-        const inserted = [...vertices];
-        inserted.splice(bestIdx + 1, 0, { x: clamp(snapGrid(bestX), 0, CANVAS_W), y: clamp(snapGrid(bestY), 0, CANVAS_H) });
-        setVertices(inserted);
-        setIsDirty(true);
-      }
-      return;
+    // insert vertex on nearest edge if within 15 screen-pixels
+    const threshold = 15 / zoom;
+    let bestDist = Infinity, bestIdx = -1, bestX = 0, bestY = 0;
+    for (let i = 0; i < vertices.length; i++) {
+      const j = (i + 1) % vertices.length;
+      const r = distToSegment(x, y, vertices[i].x, vertices[i].y, vertices[j].x, vertices[j].y);
+      if (r.dist < bestDist) { bestDist = r.dist; bestIdx = i; bestX = r.x; bestY = r.y; }
     }
-
-    if (vertices.length >= 3) {
-      const first = vertices[0];
-      if (Math.abs(snapped.x - first.x) <= 5 && Math.abs(snapped.y - first.y) <= 5) {
-        pushHistory(vertices, bays, polygonClosed);
-        setPolygonClosed(true);
-        setIsDirty(true);
-        return;
-      }
+    if (bestDist <= threshold) {
+      pushHistory(vertices, bays);
+      const inserted = [...vertices];
+      inserted.splice(bestIdx + 1, 0, { x: clamp(snapGrid(bestX), 0, CANVAS_W), y: clamp(snapGrid(bestY), 0, CANVAS_H) });
+      setVertices(inserted);
+      setSelectedVertexIdx(bestIdx + 1);
+      setIsDirty(true);
     }
-    pushHistory(vertices, bays, polygonClosed);
-    setVertices((prev) => [...prev, snapped]);
-    setIsDirty(true);
   }
 
   function handleBayPointerDown(e: React.PointerEvent<SVGRectElement>, bay: FloorBay) {
     if (mode !== "place" || bay.floor_x === null || bay.floor_y === null) return;
     e.stopPropagation();
-    pushHistory(vertices, bays, polygonClosed);
+    pushHistory(vertices, bays);
     setSelectedBayId(bay.id);
     const { x, y } = worldCoords(e);
     bayDragRef.current = { bayId: bay.id, startWorldX: x, startWorldY: y, origFloorX: bay.floor_x, origFloorY: bay.floor_y };
@@ -314,13 +316,13 @@ export default function FloorPlanEdit() {
 
   function handleVertexPointerDown(e: React.PointerEvent<SVGCircleElement>, index: number) {
     e.stopPropagation();
-    pushHistory(vertices, bays, polygonClosed);
+    pushHistory(vertices, bays);
     vertexDragRef.current = { index };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
   function handlePlaceBay(bay: FloorBay) {
-    pushHistory(vertices, bays, polygonClosed);
+    pushHistory(vertices, bays);
     const cx = clamp(snapGrid(CANVAS_W / 2 - bay.floor_w / 2), 0, CANVAS_W);
     const cy = clamp(snapGrid(CANVAS_H / 2 - bay.floor_h / 2), 0, CANVAS_H);
     setBays((prev) => prev.map((b) => b.id === bay.id ? { ...b, floor_x: cx, floor_y: cy } : b));
@@ -330,7 +332,7 @@ export default function FloorPlanEdit() {
 
   function handleRotate() {
     if (!selectedBayId) return;
-    pushHistory(vertices, bays, polygonClosed);
+    pushHistory(vertices, bays);
     setBays((prev) => prev.map((b) => {
       if (b.id !== selectedBayId) return b;
       const rot = ((b.floor_rotation + 90) % 360) as 0 | 90 | 180 | 270;
@@ -340,7 +342,7 @@ export default function FloorPlanEdit() {
   }
 
   function handleRemoveBay(bayId: string) {
-    pushHistory(vertices, bays, polygonClosed);
+    pushHistory(vertices, bays);
     setBays((prev) => prev.map((b) => b.id === bayId ? { ...b, floor_x: null, floor_y: null } : b));
     setSelectedBayId(null);
     setIsDirty(true);
@@ -348,7 +350,7 @@ export default function FloorPlanEdit() {
 
   function handlePropChange(field: "floor_w" | "floor_h" | "color", value: string | number) {
     if (!selectedBayId) return;
-    pushHistory(vertices, bays, polygonClosed);
+    pushHistory(vertices, bays);
     setBays((prev) => prev.map((b) => b.id !== selectedBayId ? b : { ...b, [field]: value }));
     setIsDirty(true);
   }
@@ -414,7 +416,7 @@ export default function FloorPlanEdit() {
           style={{ ...btnStyle, background: mode === "place" ? NAVY : "#eee", color: mode === "place" ? "#fff" : "#333", border: "none" }}>
           Place Bays
         </button>
-        <button onClick={() => { setMode("room"); setPolygonClosed(false); }}
+        <button onClick={() => { setMode("room"); setSelectedVertexIdx(null); }}
           style={{ ...btnStyle, background: mode === "room" ? NAVY : "#eee", color: mode === "room" ? "#fff" : "#333", border: "none" }}>
           Edit Room
         </button>
@@ -423,11 +425,8 @@ export default function FloorPlanEdit() {
           title="Hand tool — drag to pan">
           ✋ Hand
         </button>
-        {mode === "room" && vertices.length >= 3 && !polygonClosed && (
-          <button onClick={() => { setPolygonClosed(true); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#2a7", color: "#2a7" }}>Close polygon</button>
-        )}
-        {mode === "room" && vertices.length > 0 && (
-          <button onClick={() => { pushHistory(vertices, bays, polygonClosed); setVertices([]); setPolygonClosed(false); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Clear room</button>
+        {mode === "room" && (
+          <button onClick={() => { pushHistory(vertices, bays); setVertices(DEFAULT_ROOM); setSelectedVertexIdx(null); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Reset room</button>
         )}
         <span style={{ flex: 1 }} />
         <button onClick={fitToRoom} style={btnStyle}>Fit</button>
@@ -477,7 +476,7 @@ export default function FloorPlanEdit() {
         <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden", background: "#f9f9f9", border: "1px solid #ddd" }}>
           <svg ref={svgRef}
             style={{ display: "block", width: "100%", height: "100%",
-              cursor: mode === "pan" ? "grab" : mode === "room" && !polygonClosed ? "crosshair" : "default" }}
+              cursor: mode === "pan" ? "grab" : "default" }}
             onWheel={handleWheel}
             onClick={handleCanvasClick}
             onPointerDown={handleSvgPointerDown}
@@ -510,11 +509,8 @@ export default function FloorPlanEdit() {
               ))}
 
               {/* room polygon */}
-              {vertices.length >= 2 && polygonClosed && (
+              {vertices.length >= 3 && (
                 <polygon points={polygonPoints} fill={`${NAVY}15`} stroke={NAVY} strokeWidth={2 / zoom} strokeLinejoin="round" style={{ pointerEvents: "none" }} />
-              )}
-              {vertices.length >= 2 && !polygonClosed && (
-                <polyline points={polygonPoints} fill="none" stroke={NAVY} strokeWidth={2 / zoom} strokeDasharray={`${6 / zoom},${4 / zoom}`} strokeLinejoin="round" style={{ pointerEvents: "none" }} />
               )}
 
               {/* placed bays */}
@@ -539,9 +535,11 @@ export default function FloorPlanEdit() {
               {/* vertex handles */}
               {mode === "room" && vertices.map((v, i) => (
                 <circle key={i} cx={v.x} cy={v.y} r={7 / zoom}
-                  fill={i === 0 ? "#2a7" : "#fff"} stroke={NAVY} strokeWidth={2 / zoom}
+                  fill={i === selectedVertexIdx ? "#e55" : i === 0 ? "#2a7" : "#fff"}
+                  stroke={NAVY} strokeWidth={2 / zoom}
                   data-vertex="true" style={{ cursor: "move" }}
-                  onPointerDown={(e) => handleVertexPointerDown(e, i)} />
+                  onPointerDown={(e) => handleVertexPointerDown(e, i)}
+                  onClick={(e) => { e.stopPropagation(); setSelectedVertexIdx(i); }} />
               ))}
             </g>
           </svg>
@@ -596,8 +594,8 @@ export default function FloorPlanEdit() {
 
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa", display: "flex", justifyContent: "space-between" }}>
         <span>
-          {mode === "room" && !polygonClosed && "Click to add vertices. Click near the first vertex (green) to close. Click on an edge of a closed polygon to insert a node."}
-          {mode === "room" && polygonClosed && "Drag vertices to adjust. Click on an edge to insert a node. Click \"Edit Room\" to add more."}
+          {mode === "room" && selectedVertexIdx !== null && "Vertex selected — Delete to remove (min 3) · Esc to deselect."}
+          {mode === "room" && selectedVertexIdx === null && "Click a vertex to select it · click an edge to insert a node · drag to adjust."}
           {mode === "pan" && "Drag anywhere to pan · scroll to zoom · switch to Place Bays to move bays."}
           {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
           {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
