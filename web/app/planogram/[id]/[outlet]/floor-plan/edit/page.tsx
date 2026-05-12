@@ -40,7 +40,7 @@ type PanDrag = {
   origPanY: number;
 };
 
-type VertexDrag = { index: number };
+type VertexDrag = { index: number; origX: number; origY: number };
 
 const btnStyle: React.CSSProperties = {
   padding: "3px 10px", fontSize: 12, background: "#eee", color: "#333",
@@ -299,8 +299,13 @@ export default function FloorPlanEdit() {
     const vd = vertexDragRef.current;
     if (vd) {
       const { x, y } = worldCoords(e);
-      const snapped = { x: clamp(snapGrid(x), 0, CANVAS_W), y: clamp(snapGrid(y), 0, CANVAS_H) };
-      setVertices((prev) => prev.map((v, i) => i === vd.index ? snapped : v));
+      let nx = clamp(snapGrid(x), 0, CANVAS_W);
+      let ny = clamp(snapGrid(y), 0, CANVAS_H);
+      if (e.shiftKey) {
+        if (Math.abs(x - vd.origX) >= Math.abs(y - vd.origY)) ny = vd.origY; // horizontal
+        else nx = vd.origX;                                                     // vertical
+      }
+      setVertices((prev) => prev.map((v, i) => i === vd.index ? { x: nx, y: ny } : v));
       setIsDirty(true);
     }
     // always show cursor world position (bay drag sets its own coord and returns early above)
@@ -317,7 +322,7 @@ export default function FloorPlanEdit() {
   function handleVertexPointerDown(e: React.PointerEvent<SVGCircleElement>, index: number) {
     e.stopPropagation();
     pushHistory(vertices, bays);
-    vertexDragRef.current = { index };
+    vertexDragRef.current = { index, origX: vertices[index].x, origY: vertices[index].y };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
@@ -493,12 +498,15 @@ export default function FloorPlanEdit() {
                 style={{ cursor: mode === "place" ? "grab" : "default" }}
                 onPointerDown={handleBackgroundPointerDown} />
 
-              {/* adaptive grid dots */}
-              {gridXs.flatMap((x) =>
-                gridYs.map((y) => (
-                  <circle key={`${x}-${y}`} cx={x} cy={y} r={1.5 / zoom} fill="#ccc" style={{ pointerEvents: "none" }} />
-                ))
-              )}
+              {/* adaptive grid lines */}
+              {gridXs.map((x) => (
+                <line key={`gx-${x}`} x1={x} y1={visTop} x2={x} y2={visBot}
+                  stroke={x % labelStep === 0 ? "#ccc" : "#e8e8e8"} strokeWidth={1 / zoom} style={{ pointerEvents: "none" }} />
+              ))}
+              {gridYs.map((y) => (
+                <line key={`gy-${y}`} x1={visLeft} y1={y} x2={visRight} y2={y}
+                  stroke={y % labelStep === 0 ? "#ccc" : "#e8e8e8"} strokeWidth={1 / zoom} style={{ pointerEvents: "none" }} />
+              ))}
 
               {/* grid labels */}
               {gridXs.filter((x) => x % labelStep === 0).map((x) => (
@@ -594,8 +602,8 @@ export default function FloorPlanEdit() {
 
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa", display: "flex", justifyContent: "space-between" }}>
         <span>
-          {mode === "room" && selectedVertexIdx !== null && "Vertex selected — Delete to remove (min 3) · Esc to deselect."}
-          {mode === "room" && selectedVertexIdx === null && "Click a vertex to select it · click an edge to insert a node · drag to adjust."}
+          {mode === "room" && selectedVertexIdx !== null && "Vertex selected — drag (Shift = axis lock) · Delete to remove (min 3) · Esc to deselect."}
+          {mode === "room" && selectedVertexIdx === null && "Click a vertex to select it · drag (Shift = axis lock) · click an edge to insert a node."}
           {mode === "pan" && "Drag anywhere to pan · scroll to zoom · switch to Place Bays to move bays."}
           {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
           {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
