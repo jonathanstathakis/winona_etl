@@ -60,6 +60,15 @@ function labelColor(bg: string): string {
   return (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255 > 0.5 ? "#111" : "#fff";
 }
 
+function distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return { dist: Math.hypot(px - x1, py - y1), x: x1, y: y1 };
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lenSq));
+  const nx = x1 + t * dx, ny = y1 + t * dy;
+  return { dist: Math.hypot(px - nx, py - ny), x: nx, y: ny };
+}
+
 export default function FloorPlanEdit() {
   const { id: layoutId, outlet } = useParams<{ id: string; outlet: string }>();
   const router = useRouter();
@@ -68,6 +77,8 @@ export default function FloorPlanEdit() {
   const bayDragRef = useRef<BayDrag | null>(null);
   const panDragRef = useRef<PanDrag | null>(null);
   const vertexDragRef = useRef<VertexDrag | null>(null);
+  const historyRef = useRef<Array<{ vertices: Vertex[]; bays: FloorBay[]; polygonClosed: boolean }>>([]);
+  const histIdxRef = useRef(-1);
 
   const [vertices, setVertices] = useState<Vertex[]>([]);
   const [polygonClosed, setPolygonClosed] = useState(false);
@@ -79,6 +90,8 @@ export default function FloorPlanEdit() {
   const [isSaving, setIsSaving] = useState(false);
   const [zoom, setZoom] = useState(0.4);
   const [pan, setPan] = useState<Pan>({ x: 20, y: 20 });
+  const [dragCoord, setDragCoord] = useState<{ x: number; y: number } | null>(null);
+  const [histVersion, setHistVersion] = useState(0);
 
   useEffect(() => {
     fetch(`/api/planogram/floor-plan/${outlet}`)
@@ -88,6 +101,9 @@ export default function FloorPlanEdit() {
         setPolygonClosed(data.vertices.length >= 3);
         setBays(data.bays);
         setIsDirty(false);
+        historyRef.current = [{ vertices: data.vertices, bays: data.bays, polygonClosed: data.vertices.length >= 3 }];
+        histIdxRef.current = 0;
+        setHistVersion(0);
         fitToRoom();
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,6 +124,46 @@ export default function FloorPlanEdit() {
     const t = setTimeout(fitToRoom, 50);
     return () => clearTimeout(t);
   }, [fitToRoom]);
+
+  function pushHistory(verts: Vertex[], b: FloorBay[], closed: boolean) {
+    historyRef.current = historyRef.current.slice(0, histIdxRef.current + 1);
+    historyRef.current.push({ vertices: [...verts], bays: [...b], polygonClosed: closed });
+    histIdxRef.current++;
+    setHistVersion((n) => n + 1);
+  }
+
+  const undo = useCallback(() => {
+    if (histIdxRef.current <= 0) return;
+    histIdxRef.current--;
+    const s = historyRef.current[histIdxRef.current];
+    setVertices(s.vertices);
+    setBays(s.bays);
+    setPolygonClosed(s.polygonClosed);
+    setIsDirty(true);
+    setHistVersion((n) => n + 1);
+  }, []);
+
+  const redo = useCallback(() => {
+    if (histIdxRef.current >= historyRef.current.length - 1) return;
+    histIdxRef.current++;
+    const s = historyRef.current[histIdxRef.current];
+    setVertices(s.vertices);
+    setBays(s.bays);
+    setPolygonClosed(s.polygonClosed);
+    setIsDirty(true);
+    setHistVersion((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+      if (e.key === "z" && e.shiftKey)  { e.preventDefault(); redo(); }
+      if (e.key === "y")                { e.preventDefault(); redo(); }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [undo, redo]);
 
   function worldCoords(e: { clientX: number; clientY: number }): { x: number; y: number } {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -130,19 +186,41 @@ export default function FloorPlanEdit() {
   }
 
   function handleCanvasClick(e: React.MouseEvent<SVGSVGElement>) {
-    if (mode !== "room" || polygonClosed) return;
+    if (mode !== "room") return;
     const target = e.target as SVGElement;
     if (target.getAttribute("data-vertex") || target.getAttribute("data-bay")) return;
     const { x, y } = worldCoords(e);
     const snapped = { x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) };
+
+    if (polygonClosed) {
+      // insert vertex on nearest edge if within 15 screen-pixels
+      const threshold = 15 / zoom;
+      let bestDist = Infinity, bestIdx = -1, bestX = 0, bestY = 0;
+      for (let i = 0; i < vertices.length; i++) {
+        const j = (i + 1) % vertices.length;
+        const r = distToSegment(x, y, vertices[i].x, vertices[i].y, vertices[j].x, vertices[j].y);
+        if (r.dist < bestDist) { bestDist = r.dist; bestIdx = i; bestX = r.x; bestY = r.y; }
+      }
+      if (bestDist <= threshold) {
+        pushHistory(vertices, bays, polygonClosed);
+        const inserted = [...vertices];
+        inserted.splice(bestIdx + 1, 0, { x: clamp(snap(bestX), 0, CANVAS_W), y: clamp(snap(bestY), 0, CANVAS_H) });
+        setVertices(inserted);
+        setIsDirty(true);
+      }
+      return;
+    }
+
     if (vertices.length >= 3) {
       const first = vertices[0];
       if (Math.abs(snapped.x - first.x) <= 5 && Math.abs(snapped.y - first.y) <= 5) {
+        pushHistory(vertices, bays, polygonClosed);
         setPolygonClosed(true);
         setIsDirty(true);
         return;
       }
     }
+    pushHistory(vertices, bays, polygonClosed);
     setVertices((prev) => [...prev, snapped]);
     setIsDirty(true);
   }
@@ -150,6 +228,7 @@ export default function FloorPlanEdit() {
   function handleBayPointerDown(e: React.PointerEvent<SVGRectElement>, bay: FloorBay) {
     if (mode !== "place" || bay.floor_x === null || bay.floor_y === null) return;
     e.stopPropagation();
+    pushHistory(vertices, bays, polygonClosed);
     setSelectedBayId(bay.id);
     const { x, y } = worldCoords(e);
     bayDragRef.current = { bayId: bay.id, startWorldX: x, startWorldY: y, origFloorX: bay.floor_x, origFloorY: bay.floor_y };
@@ -182,6 +261,7 @@ export default function FloorPlanEdit() {
       const newX = clamp(snap(bd.origFloorX + x - bd.startWorldX), 0, CANVAS_W);
       const newY = clamp(snap(bd.origFloorY + y - bd.startWorldY), 0, CANVAS_H);
       setBays((prev) => prev.map((b) => b.id === bd.bayId ? { ...b, floor_x: newX, floor_y: newY } : b));
+      setDragCoord({ x: newX, y: newY });
       setIsDirty(true);
       return;
     }
@@ -196,6 +276,7 @@ export default function FloorPlanEdit() {
       const { x, y } = worldCoords(e);
       const snapped = { x: clamp(snap(x), 0, CANVAS_W), y: clamp(snap(y), 0, CANVAS_H) };
       setVertices((prev) => prev.map((v, i) => i === vd.index ? snapped : v));
+      setDragCoord(snapped);
       setIsDirty(true);
     }
   }
@@ -204,15 +285,18 @@ export default function FloorPlanEdit() {
     bayDragRef.current = null;
     panDragRef.current = null;
     vertexDragRef.current = null;
+    setDragCoord(null);
   }
 
   function handleVertexPointerDown(e: React.PointerEvent<SVGCircleElement>, index: number) {
     e.stopPropagation();
+    pushHistory(vertices, bays, polygonClosed);
     vertexDragRef.current = { index };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
   function handlePlaceBay(bay: FloorBay) {
+    pushHistory(vertices, bays, polygonClosed);
     const cx = clamp(Math.round(CANVAS_W / 2 - bay.floor_w / 2), 0, CANVAS_W);
     const cy = clamp(Math.round(CANVAS_H / 2 - bay.floor_h / 2), 0, CANVAS_H);
     setBays((prev) => prev.map((b) => b.id === bay.id ? { ...b, floor_x: cx, floor_y: cy } : b));
@@ -222,6 +306,7 @@ export default function FloorPlanEdit() {
 
   function handleRotate() {
     if (!selectedBayId) return;
+    pushHistory(vertices, bays, polygonClosed);
     setBays((prev) => prev.map((b) => {
       if (b.id !== selectedBayId) return b;
       const rot = ((b.floor_rotation + 90) % 360) as 0 | 90 | 180 | 270;
@@ -231,6 +316,7 @@ export default function FloorPlanEdit() {
   }
 
   function handleRemoveBay(bayId: string) {
+    pushHistory(vertices, bays, polygonClosed);
     setBays((prev) => prev.map((b) => b.id === bayId ? { ...b, floor_x: null, floor_y: null } : b));
     setSelectedBayId(null);
     setIsDirty(true);
@@ -238,6 +324,7 @@ export default function FloorPlanEdit() {
 
   function handlePropChange(field: "floor_w" | "floor_h" | "color", value: string | number) {
     if (!selectedBayId) return;
+    pushHistory(vertices, bays, polygonClosed);
     setBays((prev) => prev.map((b) => b.id !== selectedBayId ? b : { ...b, [field]: value }));
     setIsDirty(true);
   }
@@ -264,6 +351,9 @@ export default function FloorPlanEdit() {
       setIsSaving(false);
     }
   }
+
+  const canUndo = histVersion >= 0 && histIdxRef.current > 0;
+  const canRedo = histVersion >= 0 && histIdxRef.current < historyRef.current.length - 1;
 
   // adaptive grid: choose step so dots are at least 8px apart
   const gridStep = ([1, 10, 100, 1000] as const).find((s) => s * zoom >= 8) ?? 1000;
@@ -295,6 +385,9 @@ export default function FloorPlanEdit() {
         <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}/floor-plan`)} style={btnStyle}>← Floor plan</button>
         <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Edit Floor Plan</h1>
         <span style={{ width: 12 }} />
+        <button onClick={undo} disabled={!canUndo} style={btnStyle} title="Undo (⌘Z)">↩ Undo</button>
+        <button onClick={redo} disabled={!canRedo} style={btnStyle} title="Redo (⌘⇧Z)">↪ Redo</button>
+        <span style={{ width: 4 }} />
         <button onClick={() => setMode("place")}
           style={{ ...btnStyle, background: mode === "place" ? NAVY : "#eee", color: mode === "place" ? "#fff" : "#333", border: "none" }}>
           Place Bays
@@ -312,7 +405,7 @@ export default function FloorPlanEdit() {
           <button onClick={() => { setPolygonClosed(true); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#2a7", color: "#2a7" }}>Close polygon</button>
         )}
         {mode === "room" && vertices.length > 0 && (
-          <button onClick={() => { setVertices([]); setPolygonClosed(false); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Clear room</button>
+          <button onClick={() => { pushHistory(vertices, bays, polygonClosed); setVertices([]); setPolygonClosed(false); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Clear room</button>
         )}
         <span style={{ flex: 1 }} />
         <button onClick={fitToRoom} style={btnStyle}>Fit</button>
@@ -415,7 +508,7 @@ export default function FloorPlanEdit() {
                 <circle key={i} cx={v.x} cy={v.y} r={7 / zoom}
                   fill={i === 0 ? "#2a7" : "#fff"} stroke={NAVY} strokeWidth={2 / zoom}
                   data-vertex="true" style={{ cursor: "move" }}
-                  onPointerDown={(e) => { e.stopPropagation(); vertexDragRef.current = { index: i }; (e.target as Element).setPointerCapture(e.pointerId); }} />
+                  onPointerDown={(e) => handleVertexPointerDown(e, i)} />
               ))}
             </g>
           </svg>
@@ -469,11 +562,16 @@ export default function FloorPlanEdit() {
       </div>
 
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa" }}>
-        {mode === "room" && !polygonClosed && "Click to add vertices. Click near the first vertex (green) to close."}
-        {mode === "room" && polygonClosed && "Drag vertices to adjust. Click \"Edit Room\" to reopen."}
-        {mode === "pan" && "Drag anywhere to pan · scroll to zoom · switch to Place Bays to move bays."}
-        {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
-        {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
+        {dragCoord
+          ? <span style={{ color: "#555", fontVariantNumeric: "tabular-nums" }}>x: {dragCoord.x} cm &nbsp; y: {dragCoord.y} cm</span>
+          : <>
+            {mode === "room" && !polygonClosed && "Click to add vertices. Click near the first vertex (green) to close. Click on an edge of a closed polygon to insert a node."}
+            {mode === "room" && polygonClosed && "Drag vertices to adjust. Click on an edge to insert a node. Click \"Edit Room\" to add more."}
+            {mode === "pan" && "Drag anywhere to pan · scroll to zoom · switch to Place Bays to move bays."}
+            {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
+            {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
+          </>
+        }
       </div>
     </div>
   );
