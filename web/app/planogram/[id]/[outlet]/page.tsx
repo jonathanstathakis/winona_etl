@@ -70,7 +70,7 @@ export default function OutletHub() {
         <button onClick={() => router.push(`/planogram/${layoutId}`)} style={smallBtn}>← Layout</button>
         <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, textTransform: "capitalize", flex: 1 }}>{outlet}</h1>
         <button onClick={() => setPrintOpen(true)} style={smallBtn}>Print…</button>
-        <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}/floor-plan/edit`)} style={smallBtn}>Edit floor plan</button>
+        <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}/floor-plan/edit`)} style={smallBtn}>Edit Floor Plan</button>
       </div>
       <PrintDialog open={printOpen} onClose={() => setPrintOpen(false)} layoutId={layoutId} outlet={outlet} />
 

@@ -446,7 +446,7 @@ export default function FloorPlanEdit() {
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, padding: 16, boxSizing: "border-box", overflow: "hidden" }}>
       {/* toolbar */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-        <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}/floor-plan`)} style={btnStyle}>← Floor plan</button>
+        <button onClick={() => router.push(`/planogram/${layoutId}/${outlet}`)} style={btnStyle}>← Outlet</button>
         <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Edit Floor Plan</h1>
         <span style={{ width: 12 }} />
         <button onClick={undo} disabled={!canUndo} style={btnStyle} title="Undo (⌘Z)">↩ Undo</button>
@@ -473,6 +473,7 @@ export default function FloorPlanEdit() {
           style={{ width: 120, cursor: "pointer", verticalAlign: "middle" }} />
         <span style={{ fontSize: 11, color: "#666", minWidth: 56, textAlign: "right" }}>{Math.round(zoom * 100) / 100} px/cm</span>
         <button onClick={handleSave} disabled={!isDirty || isSaving} style={btnStyle}>{isSaving ? "Saving…" : "Save"}</button>
+        <button onClick={async () => { await handleSave(); router.push(`/planogram/${layoutId}/${outlet}`); }} disabled={isSaving} style={{ ...btnStyle, background: NAVY, color: "#fff", border: "none" }}>Save &amp; Exit</button>
       </div>
 
       <div style={{ display: "flex", flex: 1, gap: 16, minHeight: 0 }}>
