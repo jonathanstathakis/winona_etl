@@ -449,34 +449,6 @@ export default function FloorPlanEdit() {
       </div>
 
       <div style={{ display: "flex", flex: 1, gap: 16, minHeight: 0 }}>
-        {/* bay list sidebar — hidden in pan/room modes */}
-        {mode === "place" && (
-          <div style={{ width: 160, flexShrink: 0, borderRight: "1px solid #ccc", paddingRight: 12, overflowY: "auto" }}>
-            <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
-              {(["all", "placed", "unplaced"] as const).map((f) => (
-                <button key={f} onClick={() => setBayListFilter(f)}
-                  style={{ flex: 1, padding: "2px 0", fontSize: 10, fontWeight: bayListFilter === f ? "bold" : "normal", background: bayListFilter === f ? "#333" : "#eee", color: bayListFilter === f ? "#fff" : "#333", border: "none", borderRadius: 3, cursor: "pointer" }}>
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
-                </button>
-              ))}
-            </div>
-            {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).map((b) => (
-              <div key={b.id}
-                onClick={() => b.floor_x !== null && setSelectedBayId(b.id)}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #eee", cursor: b.floor_x !== null ? "pointer" : "default", background: b.id === selectedBayId ? "#f0f4ff" : "transparent" }}>
-                <span style={{ fontSize: 12, color: b.floor_x !== null ? "#333" : "#888" }}>{b.name}</span>
-                {b.floor_x === null && (
-                  <button onClick={(e) => { e.stopPropagation(); handlePlaceBay(b); }}
-                    style={{ fontSize: 11, padding: "1px 6px", background: NAVY, color: "#fff", border: "none", borderRadius: 3, cursor: "pointer" }}>+</button>
-                )}
-              </div>
-            ))}
-            {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).length === 0 && (
-              <p style={{ fontSize: 11, color: "#ccc" }}>{bayListFilter === "unplaced" ? "All bays placed" : "No bays"}</p>
-            )}
-          </div>
-        )}
-
         {/* canvas */}
         <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden", background: "#f9f9f9", border: "1px solid #ddd" }}>
           <svg ref={svgRef}
@@ -557,6 +529,34 @@ export default function FloorPlanEdit() {
             snap {gridStep} cm
           </div>
         </div>
+
+        {/* bay list sidebar — right side, only in place mode */}
+        {mode === "place" && (
+          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12, overflowY: "auto" }}>
+            <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
+              {(["all", "placed", "unplaced"] as const).map((f) => (
+                <button key={f} onClick={() => setBayListFilter(f)}
+                  style={{ flex: 1, padding: "2px 0", fontSize: 10, fontWeight: bayListFilter === f ? "bold" : "normal", background: bayListFilter === f ? "#333" : "#eee", color: bayListFilter === f ? "#fff" : "#333", border: "none", borderRadius: 3, cursor: "pointer" }}>
+                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                </button>
+              ))}
+            </div>
+            {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).map((b) => (
+              <div key={b.id}
+                onClick={() => b.floor_x !== null && setSelectedBayId(b.id)}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #eee", cursor: b.floor_x !== null ? "pointer" : "default", background: b.id === selectedBayId ? "#f0f4ff" : "transparent" }}>
+                <span style={{ fontSize: 12, color: b.floor_x !== null ? "#333" : "#888" }}>{b.name}</span>
+                {b.floor_x === null && (
+                  <button onClick={(e) => { e.stopPropagation(); handlePlaceBay(b); }}
+                    style={{ fontSize: 11, padding: "1px 6px", background: NAVY, color: "#fff", border: "none", borderRadius: 3, cursor: "pointer" }}>+</button>
+                )}
+              </div>
+            ))}
+            {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).length === 0 && (
+              <p style={{ fontSize: 11, color: "#ccc" }}>{bayListFilter === "unplaced" ? "All bays placed" : "No bays"}</p>
+            )}
+          </div>
+        )}
 
         {/* properties panel */}
         {mode === "place" && selectedBay && selectedBay.floor_x !== null && (
