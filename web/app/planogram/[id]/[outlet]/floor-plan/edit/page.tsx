@@ -185,7 +185,8 @@ export default function FloorPlanEdit() {
 
   useEffect(() => {
     function onDelete(e: KeyboardEvent) {
-      if ((e.key === "Delete" || e.key === "Backspace") && mode === "edit" && selectedVertexIdx !== null) {
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if ((e.key === "Delete" || e.key === "Backspace") && mode === "edit" && selectedVertexIdx !== null && tag !== "INPUT" && tag !== "TEXTAREA") {
         e.preventDefault();
         if (vertices.length <= 3) return; // minimum triangle
         pushHistory(vertices, bays);
@@ -631,6 +632,43 @@ export default function FloorPlanEdit() {
 
             <button onClick={handleRotate} style={{ ...btnStyle, width: "100%", marginBottom: 6, borderColor: "#f0a500", color: "#f0a500" }}>Rotate 90°</button>
             <button onClick={() => handleRemoveBay(selectedBay.id)} style={{ ...btnStyle, width: "100%", borderColor: "#e55", color: "#e55" }}>Remove</button>
+          </div>
+        )}
+
+        {/* vertex properties panel */}
+        {mode === "edit" && selectedVertexIdx !== null && vertices[selectedVertexIdx] && (
+          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12 }}>
+            <p style={{ fontSize: 11, color: "#888", margin: "0 0 10px", fontWeight: "bold" }}>Vertex {selectedVertexIdx + 1}</p>
+
+            <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+              X (cm)
+              <input type="number" min={0} max={CANVAS_W} step={1}
+                key={`v${selectedVertexIdx}-x`}
+                defaultValue={vertices[selectedVertexIdx].x}
+                onBlur={(e) => {
+                  const nx = clamp(Math.round(Number(e.target.value) || 0), 0, CANVAS_W);
+                  pushHistory(vertices, bays);
+                  setVertices((prev) => prev.map((v, i) => i === selectedVertexIdx ? { ...v, x: nx } : v));
+                  setIsDirty(true);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
+
+            <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+              Y (cm)
+              <input type="number" min={0} max={CANVAS_H} step={1}
+                key={`v${selectedVertexIdx}-y`}
+                defaultValue={vertices[selectedVertexIdx].y}
+                onBlur={(e) => {
+                  const ny = clamp(Math.round(Number(e.target.value) || 0), 0, CANVAS_H);
+                  pushHistory(vertices, bays);
+                  setVertices((prev) => prev.map((v, i) => i === selectedVertexIdx ? { ...v, y: ny } : v));
+                  setIsDirty(true);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
           </div>
         )}
       </div>
