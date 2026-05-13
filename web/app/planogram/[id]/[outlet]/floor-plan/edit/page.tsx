@@ -612,7 +612,7 @@ export default function FloorPlanEdit() {
 
         {/* properties panel */}
         {mode === "edit" && selectedBay && selectedBay.floor_x !== null && (
-          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12 }}>
+          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12, overflowY: "auto" }}>
             <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 10 }}>
               Name
               <input type="text"
