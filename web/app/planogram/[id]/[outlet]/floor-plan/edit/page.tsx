@@ -472,13 +472,6 @@ export default function FloorPlanEdit() {
                   stroke={y % labelStep === 0 ? "#ccc" : "#e8e8e8"} strokeWidth={1 / zoom} style={{ pointerEvents: "none" }} />
               ))}
 
-              {/* grid labels */}
-              {gridXs.filter((x) => x % labelStep === 0).map((x) => (
-                <text key={`lx-${x}`} x={x} y={-6 / zoom} textAnchor="middle" fontSize={10 / zoom} fill="#999" style={{ pointerEvents: "none" }}>{x}</text>
-              ))}
-              {gridYs.filter((y) => y % labelStep === 0).map((y) => (
-                <text key={`ly-${y}`} x={-6 / zoom} y={y} textAnchor="end" dominantBaseline="middle" fontSize={10 / zoom} fill="#999" style={{ pointerEvents: "none" }}>{y}</text>
-              ))}
 
               {/* room polygon */}
               {vertices.length >= 3 && (
@@ -519,6 +512,20 @@ export default function FloorPlanEdit() {
           {/* snap level badge */}
           <div style={{ position: "absolute", bottom: 8, right: 8, fontSize: 10, color: "#aaa", background: "rgba(255,255,255,0.8)", padding: "2px 6px", borderRadius: 3, pointerEvents: "none" }}>
             snap {gridStep} cm
+          </div>
+
+          {/* y-axis ruler strip — left edge */}
+          <div style={{ position: "absolute", top: 0, left: 0, width: 44, bottom: 0, background: "#f5f5f5", borderRight: "1px solid #ddd", pointerEvents: "none", zIndex: 1, overflow: "hidden" }}>
+            {gridYs.map((y) => (
+              <span key={y} style={{ position: "absolute", right: 5, top: y * zoom + pan.y - 6, fontSize: 10, color: y % labelStep === 0 ? "#888" : "#bbb", fontWeight: y % labelStep === 0 ? 600 : 400, whiteSpace: "nowrap" }}>{y}</span>
+            ))}
+          </div>
+
+          {/* x-axis ruler strip — top edge */}
+          <div style={{ position: "absolute", top: 0, left: 44, right: 0, height: 20, background: "#f5f5f5", borderBottom: "1px solid #ddd", pointerEvents: "none", zIndex: 1, overflow: "hidden" }}>
+            {gridXs.map((x) => (
+              <span key={x} style={{ position: "absolute", left: x * zoom + pan.x - 44, top: 4, fontSize: 10, color: x % labelStep === 0 ? "#888" : "#bbb", fontWeight: x % labelStep === 0 ? 600 : 400, transform: "translateX(-50%)", whiteSpace: "nowrap" }}>{x}</span>
+            ))}
           </div>
         </div>
 
