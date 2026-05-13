@@ -42,6 +42,18 @@ type PanDrag = {
 
 type VertexDrag = { index: number; origX: number; origY: number };
 
+type Corner = "tl" | "tr" | "bl" | "br";
+type BayResizeDrag = {
+  bayId: string;
+  corner: Corner;
+  startWorldX: number;
+  startWorldY: number;
+  origFloorX: number;
+  origFloorY: number;
+  origFloorW: number;
+  origFloorH: number;
+};
+
 const btnStyle: React.CSSProperties = {
   padding: "3px 10px", fontSize: 12, background: "#eee", color: "#333",
   border: "1px solid #ccc", borderRadius: 4, cursor: "pointer",
@@ -81,6 +93,7 @@ export default function FloorPlanEdit() {
 
   const svgRef = useRef<SVGSVGElement>(null);
   const bayDragRef = useRef<BayDrag | null>(null);
+  const bayResizeDragRef = useRef<BayResizeDrag | null>(null);
   const panDragRef = useRef<PanDrag | null>(null);
   const vertexDragRef = useRef<VertexDrag | null>(null);
   const historyRef = useRef<Array<{ vertices: Vertex[]; bays: FloorBay[] }>>([]);
@@ -267,6 +280,20 @@ export default function FloorPlanEdit() {
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
+  function handleResizePointerDown(e: React.PointerEvent<SVGRectElement>, bay: FloorBay, corner: Corner) {
+    if (bay.floor_x === null || bay.floor_y === null) return;
+    e.stopPropagation();
+    pushHistory(vertices, bays);
+    const { x, y } = worldCoords(e);
+    bayResizeDragRef.current = {
+      bayId: bay.id, corner,
+      startWorldX: x, startWorldY: y,
+      origFloorX: bay.floor_x, origFloorY: bay.floor_y,
+      origFloorW: bay.floor_w, origFloorH: bay.floor_h,
+    };
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
   function startPan(e: { clientX: number; clientY: number; pointerId?: number }, target?: Element) {
     panDragRef.current = { startClientX: e.clientX, startClientY: e.clientY, origPanX: pan.x, origPanY: pan.y };
     if (target && "pointerId" in e && e.pointerId !== undefined) {
@@ -286,6 +313,26 @@ export default function FloorPlanEdit() {
   }
 
   function handleSvgPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    // bay resize
+    const rd = bayResizeDragRef.current;
+    if (rd) {
+      const { x, y } = worldCoords(e);
+      const dx = x - rd.startWorldX;
+      const dy = y - rd.startWorldY;
+      const MIN = 10;
+      let nx = rd.origFloorX, ny = rd.origFloorY;
+      let nw = rd.origFloorW, nh = rd.origFloorH;
+      if (rd.corner === "tl") { nx = rd.origFloorX + dx; ny = rd.origFloorY + dy; nw = rd.origFloorW - dx; nh = rd.origFloorH - dy; }
+      if (rd.corner === "tr") {                           ny = rd.origFloorY + dy; nw = rd.origFloorW + dx; nh = rd.origFloorH - dy; }
+      if (rd.corner === "bl") { nx = rd.origFloorX + dx;                           nw = rd.origFloorW - dx; nh = rd.origFloorH + dy; }
+      if (rd.corner === "br") {                                                     nw = rd.origFloorW + dx; nh = rd.origFloorH + dy; }
+      nw = snapGrid(Math.max(MIN, nw)); nh = snapGrid(Math.max(MIN, nh));
+      nx = clamp(snapGrid(nx), 0, CANVAS_W - MIN); ny = clamp(snapGrid(ny), 0, CANVAS_H - MIN);
+      setBays((prev) => prev.map((b) => b.id === rd.bayId ? { ...b, floor_x: nx, floor_y: ny, floor_w: nw, floor_h: nh } : b));
+      setDragCoord({ x: nx, y: ny });
+      setIsDirty(true);
+      return;
+    }
     // bay drag
     const bd = bayDragRef.current;
     if (bd) {
@@ -322,6 +369,7 @@ export default function FloorPlanEdit() {
 
   function handleSvgPointerUp() {
     bayDragRef.current = null;
+    bayResizeDragRef.current = null;
     panDragRef.current = null;
     vertexDragRef.current = null;
   }
@@ -546,6 +594,18 @@ export default function FloorPlanEdit() {
                     <text x={x + b.floor_w / 2} y={y + b.floor_h / 2} textAnchor="middle" dominantBaseline="middle"
                       fontSize={fontSize} fontWeight="bold" fill={labelColor(b.color)}
                       style={{ pointerEvents: "none", userSelect: "none" }}>{b.name}</text>
+                    {isSelected && mode === "edit" && (
+                      [["tl", x, y, "nwse-resize"], ["tr", x + b.floor_w, y, "nesw-resize"],
+                       ["bl", x, y + b.floor_h, "nesw-resize"], ["br", x + b.floor_w, y + b.floor_h, "nwse-resize"]]
+                        .map(([corner, cx, cy, cursor]) => (
+                          <rect key={corner as string}
+                            x={(cx as number) - 5 / zoom} y={(cy as number) - 5 / zoom}
+                            width={10 / zoom} height={10 / zoom}
+                            fill="white" stroke={NAVY} strokeWidth={1.5 / zoom}
+                            style={{ cursor: cursor as string }}
+                            onPointerDown={(e) => handleResizePointerDown(e, b, corner as Corner)} />
+                        ))
+                    )}
                   </g>
                 );
               })}
