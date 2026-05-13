@@ -403,14 +403,27 @@ class FloorBayOut(BaseModel):
     color: str
 
 
+class LandmarkItem(BaseModel):
+    id: str
+    type: str
+    x: float
+    y: float
+    w: float = 40
+    h: float = 40
+    rotation: int = 0
+    label: str = ""
+
+
 class FloorPlanOut(BaseModel):
     outlet: str
     vertices: list[Vertex]
     bays: list[FloorBayOut]
+    landmarks: list[LandmarkItem] = []
 
 
 class FloorPlanIn(BaseModel):
     vertices: list[Vertex]
+    landmarks: list[LandmarkItem] = []
 
 
 class FloorPositionIn(BaseModel):
@@ -426,8 +439,9 @@ class FloorPositionIn(BaseModel):
 def get_floor_plan(outlet: str) -> FloorPlanOut:
     _validate_outlet(outlet)
     conn = get_conn()
-    rows = _rows(conn, f"SELECT vertices FROM wh.planogram.floor_plan WHERE outlet = '{_esc(outlet)}'")
+    rows = _rows(conn, f"SELECT vertices, landmarks FROM wh.planogram.floor_plan WHERE outlet = '{_esc(outlet)}'")
     vertices = [Vertex(**v) for v in json.loads(rows[0]["vertices"] if rows else "[]")]
+    landmarks = [LandmarkItem(**lm) for lm in json.loads(rows[0]["landmarks"] if rows else "[]")]
     bay_rows = _rows(conn, f"""
         SELECT id, name, floor_x, floor_y, floor_w, floor_h, floor_rotation, color
         FROM wh.planogram.bay
@@ -435,7 +449,7 @@ def get_floor_plan(outlet: str) -> FloorPlanOut:
         ORDER BY sort_order
     """)
     bays = [FloorBayOut(**r) for r in bay_rows]
-    return FloorPlanOut(outlet=outlet, vertices=vertices, bays=bays)
+    return FloorPlanOut(outlet=outlet, vertices=vertices, bays=bays, landmarks=landmarks)
 
 
 @router.put("/floor-plan/{outlet}")
@@ -443,10 +457,11 @@ def save_floor_plan(outlet: str, body: FloorPlanIn) -> FloorPlanOut:
     _validate_outlet(outlet)
     conn = get_conn()
     vertices_json = _esc(json.dumps([v.model_dump() for v in body.vertices]))
+    landmarks_json = _esc(json.dumps([lm.model_dump() for lm in body.landmarks]))
     _pg_exec(conn, f"""
-        INSERT INTO planogram.floor_plan (outlet, vertices)
-        VALUES ('{_esc(outlet)}', '{vertices_json}')
-        ON CONFLICT (outlet) DO UPDATE SET vertices = EXCLUDED.vertices
+        INSERT INTO planogram.floor_plan (outlet, vertices, landmarks)
+        VALUES ('{_esc(outlet)}', '{vertices_json}', '{landmarks_json}')
+        ON CONFLICT (outlet) DO UPDATE SET vertices = EXCLUDED.vertices, landmarks = EXCLUDED.landmarks
     """)
     return get_floor_plan(outlet)
 

@@ -1,11 +1,12 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Monitor, Flower2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 
 const NAVY = "#1a2b5f";
-const CANVAS_W = 2000;  // cm
-const CANVAS_H = 1500;  // cm
-const MIN_ZOOM = 0.05;  // px/cm
+const CANVAS_W = 1000;  // cm
+const CANVAS_H = 1000;  // cm
+const MIN_ZOOM = 0.1;   // px/cm
 const MAX_ZOOM = 10;    // px/cm
 const LOG_RANGE = Math.log(MAX_ZOOM / MIN_ZOOM);
 
@@ -41,6 +42,15 @@ type PanDrag = {
 };
 
 type VertexDrag = { index: number; origX: number; origY: number };
+
+type LandmarkType = "door" | "computer" | "display";
+type Landmark = { id: string; type: LandmarkType; x: number; y: number; w: number; h: number; rotation: number; label: string };
+type LandmarkDrag = { id: string; startWorldX: number; startWorldY: number; origX: number; origY: number };
+type LandmarkResizeDrag = {
+  id: string; corner: Corner;
+  startWorldX: number; startWorldY: number;
+  origX: number; origY: number; origW: number; origH: number;
+};
 
 type Corner = "tl" | "tr" | "bl" | "br";
 type BayResizeDrag = {
@@ -82,9 +92,60 @@ function distToSegment(px: number, py: number, x1: number, y1: number, x2: numbe
   return { dist: Math.hypot(px - nx, py - ny), x: nx, y: ny };
 }
 
+const LANDMARK_SIZE = 40; // cm, default icon footprint
+
+const LUCIDE_ICON: Record<Exclude<LandmarkType, "door">, React.ElementType> = {
+  computer: Monitor,
+  display: Flower2,
+};
+
+// draw.io floorplan.doorLeft paths — wall rect + quarter-circle bezier arc
+function DoorPaths({ c }: { c: string }) {
+  return (
+    <>
+      <rect x="0" y="0" width="80" height="5" fill="none" stroke={c} strokeWidth="3" />
+      <path d="M 80 5 C 80 49.18 44.18 85 0 85 L 0 5" fill="none" stroke={c} strokeWidth="3" />
+    </>
+  );
+}
+
+// HTML context (palette buttons)
+function LandmarkIcon({ type, size, color }: { type: LandmarkType; size: number; color?: string }) {
+  const c = color ?? NAVY;
+  if (type === "door") {
+    return (
+      <svg width={size} height={size} viewBox="0 0 80 85" style={{ display: "block" }}>
+        <DoorPaths c={c} />
+      </svg>
+    );
+  }
+  const Icon = LUCIDE_ICON[type];
+  return <Icon size={size} color={c} strokeWidth={1.5} />;
+}
+
+// SVG canvas context — nested <svg> maps canvas units to icon coordinate space
+function LandmarkIconSvg({ type, w, h, color }: { type: LandmarkType; w: number; h: number; color?: string }) {
+  const c = color ?? NAVY;
+  if (type === "door") {
+    return (
+      <svg x={0} y={0} width={w} height={h} viewBox="0 0 80 85" style={{ pointerEvents: "none", overflow: "visible" }}>
+        <DoorPaths c={c} />
+      </svg>
+    );
+  }
+  const Icon = LUCIDE_ICON[type];
+  return (
+    <svg x={0} y={0} width={w} height={h} viewBox="0 0 24 24" style={{ pointerEvents: "none", overflow: "visible" }}>
+      <Icon size={24} color={c} strokeWidth={1.5} />
+    </svg>
+  );
+}
+
+const LANDMARK_LABELS: Record<LandmarkType, string> = { door: "Door", computer: "PC", display: "Plant" };
+
 const DEFAULT_ROOM: Vertex[] = [
-  { x: 900, y: 650 }, { x: 1100, y: 650 },
-  { x: 1100, y: 850 }, { x: 900, y: 850 },
+  { x: 400, y: 400 }, { x: 600, y: 400 },
+  { x: 600, y: 600 }, { x: 400, y: 600 },
 ];
 
 export default function FloorPlanEdit() {
@@ -96,7 +157,9 @@ export default function FloorPlanEdit() {
   const bayResizeDragRef = useRef<BayResizeDrag | null>(null);
   const panDragRef = useRef<PanDrag | null>(null);
   const vertexDragRef = useRef<VertexDrag | null>(null);
-  const historyRef = useRef<Array<{ vertices: Vertex[]; bays: FloorBay[] }>>([]);
+  const landmarkDragRef = useRef<LandmarkDrag | null>(null);
+  const landmarkResizeDragRef = useRef<LandmarkResizeDrag | null>(null);
+  const historyRef = useRef<Array<{ vertices: Vertex[]; bays: FloorBay[]; landmarks: Landmark[] }>>([]);
   const histIdxRef = useRef(-1);
 
   const [vertices, setVertices] = useState<Vertex[]>([]);
@@ -107,11 +170,16 @@ export default function FloorPlanEdit() {
   const [bayListFilter, setBayListFilter] = useState<"all" | "placed" | "unplaced">("unplaced");
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [zoom, setZoom] = useState(0.4);
+  const [zoom, setZoom] = useState(0.7);
   const [pan, setPan] = useState<Pan>({ x: 20, y: 20 });
   const [dragCoord, setDragCoord] = useState<{ x: number; y: number } | null>(null);
   const [histVersion, setHistVersion] = useState(0);
   const [gridSnap, setGridSnap] = useState(false);
+  const [landmarks, setLandmarks] = useState<Landmark[]>([]);
+  const [selectedLandmarkId, setSelectedLandmarkId] = useState<string | null>(null);
+  const [placingType, setPlacingType] = useState<LandmarkType | null>(null);
+  const [baysSectionOpen, setBaysSectionOpen] = useState(true);
+  const [iconsSectionOpen, setIconsSectionOpen] = useState(true);
   const [showNewBay, setShowNewBay] = useState(false);
   const [newBayName, setNewBayName] = useState("");
   const [newBayDesc, setNewBayDesc] = useState("");
@@ -130,10 +198,12 @@ export default function FloorPlanEdit() {
       .then((r) => r.json())
       .then((data) => {
         const verts = data.vertices.length >= 3 ? data.vertices : DEFAULT_ROOM;
+        const lms: Landmark[] = data.landmarks ?? [];
         setVertices(verts);
         setBays(data.bays);
+        setLandmarks(lms);
         setIsDirty(data.vertices.length < 3);
-        historyRef.current = [{ vertices: verts, bays: data.bays }];
+        historyRef.current = [{ vertices: verts, bays: data.bays, landmarks: lms }];
         histIdxRef.current = 0;
         setHistVersion(0);
         fitToRoom();
@@ -157,9 +227,9 @@ export default function FloorPlanEdit() {
     return () => clearTimeout(t);
   }, [fitToRoom]);
 
-  function pushHistory(verts: Vertex[], b: FloorBay[]) {
+  function pushHistory(verts: Vertex[], b: FloorBay[], lms?: Landmark[]) {
     historyRef.current = historyRef.current.slice(0, histIdxRef.current + 1);
-    historyRef.current.push({ vertices: [...verts], bays: [...b] });
+    historyRef.current.push({ vertices: [...verts], bays: [...b], landmarks: [...(lms ?? landmarks)] });
     histIdxRef.current++;
     setHistVersion((n) => n + 1);
   }
@@ -170,6 +240,7 @@ export default function FloorPlanEdit() {
     const s = historyRef.current[histIdxRef.current];
     setVertices(s.vertices);
     setBays(s.bays);
+    setLandmarks(s.landmarks);
     setIsDirty(true);
     setHistVersion((n) => n + 1);
   }, []);
@@ -180,6 +251,7 @@ export default function FloorPlanEdit() {
     const s = historyRef.current[histIdxRef.current];
     setVertices(s.vertices);
     setBays(s.bays);
+    setLandmarks(s.landmarks);
     setIsDirty(true);
     setHistVersion((n) => n + 1);
   }, []);
@@ -199,9 +271,18 @@ export default function FloorPlanEdit() {
   useEffect(() => {
     function onDelete(e: KeyboardEvent) {
       const tag = (document.activeElement as HTMLElement)?.tagName;
-      if ((e.key === "Delete" || e.key === "Backspace") && mode === "edit" && selectedVertexIdx !== null && tag !== "INPUT" && tag !== "TEXTAREA") {
+      if ((e.key !== "Delete" && e.key !== "Backspace") || mode !== "edit" || tag === "INPUT" || tag === "TEXTAREA") return;
+      if (selectedLandmarkId !== null) {
         e.preventDefault();
-        if (vertices.length <= 3) return; // minimum triangle
+        pushHistory(vertices, bays, landmarks.filter((lm) => lm.id !== selectedLandmarkId));
+        setLandmarks((prev) => prev.filter((lm) => lm.id !== selectedLandmarkId));
+        setSelectedLandmarkId(null);
+        setIsDirty(true);
+        return;
+      }
+      if (selectedVertexIdx !== null) {
+        e.preventDefault();
+        if (vertices.length <= 3) return;
         pushHistory(vertices, bays);
         setVertices(vertices.filter((_, i) => i !== selectedVertexIdx));
         setSelectedVertexIdx(null);
@@ -210,7 +291,7 @@ export default function FloorPlanEdit() {
     }
     window.addEventListener("keydown", onDelete);
     return () => window.removeEventListener("keydown", onDelete);
-  }, [mode, vertices, selectedVertexIdx, bays]);
+  }, [mode, vertices, selectedVertexIdx, bays, landmarks, selectedLandmarkId]);
 
   function worldCoords(e: { clientX: number; clientY: number }): { x: number; y: number } {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -247,10 +328,20 @@ export default function FloorPlanEdit() {
   }
 
   function handleCanvasClick(e: React.MouseEvent<SVGSVGElement>) {
-    if (mode !== "edit" || vertices.length < 3) return;
+    if (mode !== "edit") return;
     const target = e.target as SVGElement;
-    if (target.getAttribute("data-vertex") || target.getAttribute("data-bay")) return;
+    if (target.getAttribute("data-vertex") || target.getAttribute("data-bay") || target.getAttribute("data-landmark")) return;
     const { x, y } = worldCoords(e);
+    if (placingType !== null) {
+      const newLm: Landmark = { id: crypto.randomUUID(), type: placingType, x: snapGrid(x), y: snapGrid(y), w: LANDMARK_SIZE, h: LANDMARK_SIZE, rotation: 0, label: "" };
+      pushHistory(vertices, bays, [...landmarks, newLm]);
+      setLandmarks((prev) => [...prev, newLm]);
+      setSelectedLandmarkId(newLm.id);
+      setPlacingType(null);
+      setIsDirty(true);
+      return;
+    }
+    if (vertices.length < 3) return;
     // insert vertex on nearest edge if within 15 screen-pixels
     const threshold = 15 / zoom;
     let bestDist = Infinity, bestIdx = -1, bestX = 0, bestY = 0;
@@ -276,6 +367,7 @@ export default function FloorPlanEdit() {
     setSelectedBayId(bay.id);
     setSelectedVertexIdx(null);
     const { x, y } = worldCoords(e);
+    setSelectedLandmarkId(null);
     bayDragRef.current = { bayId: bay.id, startWorldX: x, startWorldY: y, origFloorX: bay.floor_x, origFloorY: bay.floor_y };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
@@ -304,6 +396,7 @@ export default function FloorPlanEdit() {
   function handleBackgroundPointerDown(e: React.PointerEvent<SVGRectElement>) {
     if (mode !== "edit") return;
     setSelectedBayId(null);
+    setSelectedLandmarkId(null);
     startPan(e, e.target as Element);
   }
 
@@ -313,6 +406,36 @@ export default function FloorPlanEdit() {
   }
 
   function handleSvgPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    // landmark resize
+    const lr = landmarkResizeDragRef.current;
+    if (lr) {
+      const { x, y } = worldCoords(e);
+      const dx = x - lr.startWorldX;
+      const dy = y - lr.startWorldY;
+      const MIN = 10;
+      let nx = lr.origX, ny = lr.origY, nw = lr.origW, nh = lr.origH;
+      if (lr.corner === "tl") { nx = lr.origX + dx; ny = lr.origY + dy; nw = lr.origW - dx; nh = lr.origH - dy; }
+      if (lr.corner === "tr") {                      ny = lr.origY + dy; nw = lr.origW + dx; nh = lr.origH - dy; }
+      if (lr.corner === "bl") { nx = lr.origX + dx;                      nw = lr.origW - dx; nh = lr.origH + dy; }
+      if (lr.corner === "br") {                                           nw = lr.origW + dx; nh = lr.origH + dy; }
+      nw = snapGrid(Math.max(MIN, nw)); nh = snapGrid(Math.max(MIN, nh));
+      nx = clamp(snapGrid(nx), 0, CANVAS_W - MIN); ny = clamp(snapGrid(ny), 0, CANVAS_H - MIN);
+      setLandmarks((prev) => prev.map((lm) => lm.id === lr.id ? { ...lm, x: nx, y: ny, w: nw, h: nh } : lm));
+      setDragCoord({ x: nx, y: ny });
+      setIsDirty(true);
+      return;
+    }
+    // landmark drag
+    const ld = landmarkDragRef.current;
+    if (ld) {
+      const { x, y } = worldCoords(e);
+      const nx = clamp(snapGrid(ld.origX + x - ld.startWorldX), 0, CANVAS_W);
+      const ny = clamp(snapGrid(ld.origY + y - ld.startWorldY), 0, CANVAS_H);
+      setLandmarks((prev) => prev.map((lm) => lm.id === ld.id ? { ...lm, x: nx, y: ny } : lm));
+      setDragCoord({ x: nx, y: ny });
+      setIsDirty(true);
+      return;
+    }
     // bay resize
     const rd = bayResizeDragRef.current;
     if (rd) {
@@ -372,12 +495,41 @@ export default function FloorPlanEdit() {
     bayResizeDragRef.current = null;
     panDragRef.current = null;
     vertexDragRef.current = null;
+    landmarkDragRef.current = null;
+    landmarkResizeDragRef.current = null;
   }
 
   function handleVertexPointerDown(e: React.PointerEvent<SVGCircleElement>, index: number) {
     e.stopPropagation();
     pushHistory(vertices, bays);
     vertexDragRef.current = { index, origX: vertices[index].x, origY: vertices[index].y };
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
+  function handleLandmarkPropChange(field: "x" | "y" | "w" | "h" | "label", value: string | number) {
+    if (!selectedLandmarkId) return;
+    pushHistory(vertices, bays);
+    setLandmarks((prev) => prev.map((lm) => lm.id !== selectedLandmarkId ? lm : { ...lm, [field]: value }));
+    setIsDirty(true);
+  }
+
+  function handleLandmarkResizePointerDown(e: React.PointerEvent<SVGRectElement>, lm: Landmark, corner: Corner) {
+    e.stopPropagation();
+    pushHistory(vertices, bays);
+    const { x, y } = worldCoords(e);
+    landmarkResizeDragRef.current = { id: lm.id, corner, startWorldX: x, startWorldY: y, origX: lm.x, origY: lm.y, origW: lm.w, origH: lm.h };
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
+  function handleLandmarkPointerDown(e: React.PointerEvent<SVGGElement>, lm: Landmark) {
+    if (mode !== "edit") return;
+    e.stopPropagation();
+    pushHistory(vertices, bays);
+    setSelectedLandmarkId(lm.id);
+    setSelectedBayId(null);
+    setSelectedVertexIdx(null);
+    const { x, y } = worldCoords(e);
+    landmarkDragRef.current = { id: lm.id, startWorldX: x, startWorldY: y, origX: lm.x, origY: lm.y };
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
@@ -466,7 +618,7 @@ export default function FloorPlanEdit() {
       await fetch(`/api/planogram/floor-plan/${outlet}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vertices }),
+        body: JSON.stringify({ vertices, landmarks }),
       });
       await Promise.all(
         bays.map((b) =>
@@ -504,7 +656,6 @@ export default function FloorPlanEdit() {
 
   const polygonPoints = vertices.map((v) => `${v.x},${v.y}`).join(" ");
   const placedBays = bays.filter((b) => b.floor_x !== null);
-  const unplacedBays = bays.filter((b) => b.floor_x === null);
   const selectedBay = bays.find((b) => b.id === selectedBayId) ?? null;
 
   return (
@@ -524,7 +675,6 @@ export default function FloorPlanEdit() {
           ✋ Hand
         </button>
         <button onClick={() => { pushHistory(vertices, bays); setVertices(DEFAULT_ROOM); setSelectedVertexIdx(null); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Reset room</button>
-        <button onClick={() => setShowNewBay(true)} style={{ ...btnStyle, background: NAVY, color: "#fff", border: "none" }}>+ New Bay</button>
         <span style={{ flex: 1 }} />
         <button onClick={fitToRoom} style={btnStyle}>Fit</button>
         <button onClick={() => setGridSnap((v) => !v)}
@@ -541,7 +691,67 @@ export default function FloorPlanEdit() {
         <button onClick={async () => { await handleSave(); router.push(`/planogram/${layoutId}/${outlet}`); }} disabled={isSaving} style={{ ...btnStyle, background: NAVY, color: "#fff", border: "none" }}>Save &amp; Exit</button>
       </div>
 
-      <div style={{ display: "flex", flex: 1, gap: 16, minHeight: 0 }}>
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+
+        {/* left panel — shape library */}
+        {mode === "edit" && (
+          <div style={{ width: 180, flexShrink: 0, borderRight: "1px solid #ddd", display: "flex", flexDirection: "column", background: "#fafafa", overflowY: "auto" }}>
+
+            {/* Bays section */}
+            <button onClick={() => setBaysSectionOpen((v) => !v)}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "7px 10px", background: "#f0f0f0", border: "none", borderBottom: "1px solid #ddd", cursor: "pointer", fontWeight: 600, fontSize: 12, color: "#333", flexShrink: 0 }}>
+              Bays <span style={{ fontSize: 10 }}>{baysSectionOpen ? "▾" : "▸"}</span>
+            </button>
+            {baysSectionOpen && (
+              <div style={{ padding: "8px 10px", borderBottom: "1px solid #e8e8e8" }}>
+                <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
+                  {(["all", "placed", "unplaced"] as const).map((f) => (
+                    <button key={f} onClick={() => setBayListFilter(f)}
+                      style={{ flex: 1, padding: "2px 0", fontSize: 10, fontWeight: bayListFilter === f ? "bold" : "normal", background: bayListFilter === f ? "#333" : "#eee", color: bayListFilter === f ? "#fff" : "#333", border: "none", borderRadius: 3, cursor: "pointer" }}>
+                      {f.charAt(0).toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).map((b) => (
+                  <div key={b.id}
+                    onClick={() => { if (b.floor_x !== null) { setSelectedBayId(b.id); setSelectedVertexIdx(null); setSelectedLandmarkId(null); } }}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #eee", cursor: b.floor_x !== null ? "pointer" : "default", background: b.id === selectedBayId ? "#f0f4ff" : "transparent" }}>
+                    <span style={{ fontSize: 12, color: b.floor_x !== null ? "#333" : "#888" }}>{b.name}</span>
+                    {b.floor_x === null && (
+                      <button onClick={(e) => { e.stopPropagation(); handlePlaceBay(b); }}
+                        style={{ fontSize: 11, padding: "1px 6px", background: NAVY, color: "#fff", border: "none", borderRadius: 3, cursor: "pointer" }}>+</button>
+                    )}
+                  </div>
+                ))}
+                {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).length === 0 && (
+                  <p style={{ fontSize: 11, color: "#bbb", margin: "4px 0" }}>{bayListFilter === "unplaced" ? "All bays placed" : "No bays"}</p>
+                )}
+                <button onClick={() => setShowNewBay(true)}
+                  style={{ marginTop: 8, width: "100%", padding: "4px 0", fontSize: 11, background: NAVY, color: "#fff", border: "none", borderRadius: 3, cursor: "pointer" }}>
+                  + New Bay
+                </button>
+              </div>
+            )}
+
+            {/* Icons section */}
+            <button onClick={() => setIconsSectionOpen((v) => !v)}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "7px 10px", background: "#f0f0f0", border: "none", borderBottom: "1px solid #ddd", cursor: "pointer", fontWeight: 600, fontSize: 12, color: "#333", flexShrink: 0 }}>
+              Landmarks <span style={{ fontSize: 10 }}>{iconsSectionOpen ? "▾" : "▸"}</span>
+            </button>
+            {iconsSectionOpen && (
+              <div style={{ padding: "8px 10px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                {(["door", "computer", "display"] as LandmarkType[]).map((t) => (
+                  <button key={t} title={`Place ${LANDMARK_LABELS[t]}`}
+                    onClick={() => setPlacingType(placingType === t ? null : t)}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "8px 4px", border: "1px solid", borderColor: placingType === t ? "#e0a500" : "#ddd", borderRadius: 4, background: placingType === t ? "#fff8e0" : "#fff", cursor: "pointer" }}>
+                    <LandmarkIcon type={t} size={32} color={placingType === t ? "#c88a00" : NAVY} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* canvas */}
         <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden", background: "#f9f9f9", border: "1px solid #ddd" }}>
           <svg ref={svgRef}
@@ -610,6 +820,41 @@ export default function FloorPlanEdit() {
                 );
               })}
 
+              {/* landmarks */}
+              {landmarks.map((lm) => {
+                const isSelLm = lm.id === selectedLandmarkId;
+                return (
+                  <g key={lm.id} data-landmark="true"
+                    transform={`translate(${lm.x},${lm.y}) rotate(${lm.rotation},${lm.w / 2},${lm.h / 2})`}
+                    style={{ cursor: mode === "edit" ? "grab" : "default" }}
+                    onPointerDown={(e) => handleLandmarkPointerDown(e, lm)}>
+                    <rect x={0} y={0} width={lm.w} height={lm.h}
+                      fill={isSelLm ? "#fff8e0" : lm.type === "door" ? "transparent" : "rgba(255,255,255,0.7)"}
+                      stroke={isSelLm ? "#f0a500" : lm.type === "door" ? "none" : NAVY} strokeWidth={isSelLm ? 2 / zoom : 1 / zoom}
+                      rx={3 / zoom} style={{ pointerEvents: "all" }} />
+                    <LandmarkIconSvg type={lm.type} w={lm.w} h={lm.h} color={NAVY} />
+                    {lm.label && (
+                      <text x={lm.w / 2} y={lm.h + 12 / zoom} textAnchor="middle"
+                        fontSize={10 / zoom} fill="#555" style={{ pointerEvents: "none", userSelect: "none" }}>
+                        {lm.label}
+                      </text>
+                    )}
+                    {isSelLm && mode === "edit" && (
+                      [["tl", 0, 0, "nwse-resize"], ["tr", lm.w, 0, "nesw-resize"],
+                       ["bl", 0, lm.h, "nesw-resize"], ["br", lm.w, lm.h, "nwse-resize"]]
+                        .map(([corner, cx, cy, cursor]) => (
+                          <rect key={corner as string}
+                            x={(cx as number) - 5 / zoom} y={(cy as number) - 5 / zoom}
+                            width={10 / zoom} height={10 / zoom}
+                            fill="white" stroke={NAVY} strokeWidth={1.5 / zoom}
+                            style={{ cursor: cursor as string }}
+                            onPointerDown={(e) => handleLandmarkResizePointerDown(e, lm, corner as Corner)} />
+                        ))
+                    )}
+                  </g>
+                );
+              })}
+
               {/* vertex handles */}
               {mode === "edit" && vertices.map((v, i) => (
                 <circle key={i} cx={v.x} cy={v.y} r={7 / zoom}
@@ -617,7 +862,7 @@ export default function FloorPlanEdit() {
                   stroke={NAVY} strokeWidth={2 / zoom}
                   data-vertex="true" style={{ cursor: "move" }}
                   onPointerDown={(e) => handleVertexPointerDown(e, i)}
-                  onClick={(e) => { e.stopPropagation(); setSelectedVertexIdx(i); setSelectedBayId(null); }} />
+                  onClick={(e) => { e.stopPropagation(); setSelectedVertexIdx(i); setSelectedBayId(null); setSelectedLandmarkId(null); }} />
               ))}
             </g>
           </svg>
@@ -642,37 +887,9 @@ export default function FloorPlanEdit() {
           </div>
         </div>
 
-        {/* bay list sidebar — right side, hidden in pan mode */}
-        {mode === "edit" && (
-          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12, overflowY: "auto" }}>
-            <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
-              {(["all", "placed", "unplaced"] as const).map((f) => (
-                <button key={f} onClick={() => setBayListFilter(f)}
-                  style={{ flex: 1, padding: "2px 0", fontSize: 10, fontWeight: bayListFilter === f ? "bold" : "normal", background: bayListFilter === f ? "#333" : "#eee", color: bayListFilter === f ? "#fff" : "#333", border: "none", borderRadius: 3, cursor: "pointer" }}>
-                  {f.charAt(0).toUpperCase() + f.slice(1)}
-                </button>
-              ))}
-            </div>
-            {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).map((b) => (
-              <div key={b.id}
-                onClick={() => { if (b.floor_x !== null) { setSelectedBayId(b.id); setSelectedVertexIdx(null); } }}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #eee", cursor: b.floor_x !== null ? "pointer" : "default", background: b.id === selectedBayId ? "#f0f4ff" : "transparent" }}>
-                <span style={{ fontSize: 12, color: b.floor_x !== null ? "#333" : "#888" }}>{b.name}</span>
-                {b.floor_x === null && (
-                  <button onClick={(e) => { e.stopPropagation(); handlePlaceBay(b); }}
-                    style={{ fontSize: 11, padding: "1px 6px", background: NAVY, color: "#fff", border: "none", borderRadius: 3, cursor: "pointer" }}>+</button>
-                )}
-              </div>
-            ))}
-            {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).length === 0 && (
-              <p style={{ fontSize: 11, color: "#ccc" }}>{bayListFilter === "unplaced" ? "All bays placed" : "No bays"}</p>
-            )}
-          </div>
-        )}
-
         {/* properties panel */}
         {mode === "edit" && selectedBay && selectedBay.floor_x !== null && (
-          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12, overflowY: "auto" }}>
+          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ddd", padding: "8px 10px", overflowY: "auto", background: "#fafafa" }}>
             <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 10 }}>
               Name
               <input type="text"
@@ -735,9 +952,77 @@ export default function FloorPlanEdit() {
           </div>
         )}
 
+        {/* landmark properties panel */}
+        {mode === "edit" && selectedLandmarkId !== null && !selectedBay && selectedVertexIdx === null && (() => {
+          const lm = landmarks.find((l) => l.id === selectedLandmarkId);
+          if (!lm) return null;
+          return (
+            <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ddd", padding: "8px 10px", background: "#fafafa", overflowY: "auto" }}>
+              <p style={{ fontSize: 11, color: "#888", margin: "0 0 10px", fontWeight: "bold" }}>{LANDMARK_LABELS[lm.type]}</p>
+
+              <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+                Label
+                <input type="text"
+                  key={`lm-${lm.id}-label`}
+                  defaultValue={lm.label}
+                  onBlur={(e) => handleLandmarkPropChange("label", e.target.value.trim())}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+              </label>
+
+              <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+                Width (cm)
+                <input type="number" min={10} max={2000} step={10}
+                  key={`lm-${lm.id}-w`}
+                  defaultValue={lm.w}
+                  onBlur={(e) => handleLandmarkPropChange("w", Math.max(10, Number(e.target.value) || 10))}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+              </label>
+
+              <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+                Depth (cm)
+                <input type="number" min={10} max={2000} step={10}
+                  key={`lm-${lm.id}-h`}
+                  defaultValue={lm.h}
+                  onBlur={(e) => handleLandmarkPropChange("h", Math.max(10, Number(e.target.value) || 10))}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+              </label>
+
+              <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+                X (cm)
+                <input type="number" min={0} max={CANVAS_W} step={1}
+                  key={`lm-${lm.id}-x`}
+                  defaultValue={lm.x}
+                  onBlur={(e) => handleLandmarkPropChange("x", clamp(Math.round(Number(e.target.value) || 0), 0, CANVAS_W))}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+              </label>
+
+              <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 10 }}>
+                Y (cm)
+                <input type="number" min={0} max={CANVAS_H} step={1}
+                  key={`lm-${lm.id}-y`}
+                  defaultValue={lm.y}
+                  onBlur={(e) => handleLandmarkPropChange("y", clamp(Math.round(Number(e.target.value) || 0), 0, CANVAS_H))}
+                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+              </label>
+
+              <button onClick={() => {
+                pushHistory(vertices, bays, landmarks.filter((l) => l.id !== lm.id));
+                setLandmarks((prev) => prev.filter((l) => l.id !== lm.id));
+                setSelectedLandmarkId(null);
+                setIsDirty(true);
+              }} style={{ ...btnStyle, width: "100%", borderColor: "#e55", color: "#e55" }}>Remove</button>
+            </div>
+          );
+        })()}
+
         {/* vertex properties panel */}
         {mode === "edit" && selectedVertexIdx !== null && vertices[selectedVertexIdx] && (
-          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12 }}>
+          <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ddd", padding: "8px 10px", background: "#fafafa" }}>
             <p style={{ fontSize: 11, color: "#888", margin: "0 0 10px", fontWeight: "bold" }}>Vertex {selectedVertexIdx + 1}</p>
 
             <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
@@ -822,9 +1107,11 @@ export default function FloorPlanEdit() {
 
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa", display: "flex", justifyContent: "space-between" }}>
         <span>
-          {mode === "edit" && selectedVertexIdx !== null && "Vertex selected — drag (Shift = axis lock) · Delete to remove (min 3) · Esc to deselect."}
-          {mode === "edit" && selectedBay && selectedVertexIdx === null && "Bay selected — drag to reposition · adjust size and colour in the panel."}
-          {mode === "edit" && !selectedBay && selectedVertexIdx === null && "Click a vertex to select it · click an edge to insert · drag bays to reposition · drag background to pan."}
+          {mode === "edit" && placingType !== null && `Click canvas to place ${LANDMARK_LABELS[placingType]} · click palette button again to cancel.`}
+          {mode === "edit" && placingType === null && selectedVertexIdx !== null && "Vertex selected — drag (Shift = axis lock) · Delete to remove (min 3) · Esc to deselect."}
+          {mode === "edit" && placingType === null && selectedBay && selectedVertexIdx === null && "Bay selected — drag to reposition · adjust size and colour in the panel."}
+          {mode === "edit" && placingType === null && selectedLandmarkId !== null && !selectedBay && selectedVertexIdx === null && "Landmark selected — drag to reposition · Delete to remove."}
+          {mode === "edit" && placingType === null && !selectedBay && selectedVertexIdx === null && selectedLandmarkId === null && "Click a vertex to select it · click an edge to insert · drag bays to reposition · drag background to pan."}
           {mode === "pan" && "Drag anywhere to pan · scroll to zoom."}
         </span>
         {dragCoord && (

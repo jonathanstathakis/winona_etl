@@ -100,4 +100,5 @@ def run_migrations() -> None:
     # fix column defaults so new bays get sensible cm sizes
     _ddl(conn, "ALTER TABLE planogram.bay ALTER COLUMN floor_w SET DEFAULT 50")
     _ddl(conn, "ALTER TABLE planogram.bay ALTER COLUMN floor_h SET DEFAULT 100")
+    _ddl(conn, "ALTER TABLE planogram.floor_plan ADD COLUMN IF NOT EXISTS landmarks TEXT NOT NULL DEFAULT '[]'")
     log.info("Migrations complete.")

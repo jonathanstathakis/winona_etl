@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { Monitor, Flower2 } from "lucide-react";
 import PrintDialog from "../../components/PrintDialog";
 
 const NAVY = "#1a2b5f";
@@ -9,7 +10,29 @@ const CANVAS_H = 1500;
 
 type Vertex = { x: number; y: number };
 type FloorBay = { id: string; name: string; floor_x: number | null; floor_y: number | null; floor_w: number; floor_h: number; floor_rotation: number; color: string };
-type FloorPlanData = { vertices: Vertex[]; bays: FloorBay[] };
+type LandmarkType = "door" | "computer" | "display";
+type Landmark = { id: string; type: LandmarkType; x: number; y: number; w: number; h: number; rotation: number; label: string };
+type FloorPlanData = { vertices: Vertex[]; bays: FloorBay[]; landmarks: Landmark[] };
+
+const LUCIDE_ICON: Record<Exclude<LandmarkType, "door">, React.ElementType> = { computer: Monitor, display: Flower2 };
+
+function DoorPaths({ c }: { c: string }) {
+  return (
+    <>
+      <rect x="0" y="0" width="80" height="5" fill="none" stroke={c} strokeWidth="3" />
+      <path d="M 80 5 C 80 49.18 44.18 85 0 85 L 0 5" fill="none" stroke={c} strokeWidth="3" />
+    </>
+  );
+}
+
+function LandmarkIconSvg({ type, w, h, color }: { type: LandmarkType; w: number; h: number; color?: string }) {
+  const c = color ?? NAVY;
+  if (type === "door") {
+    return <svg x={0} y={0} width={w} height={h} viewBox="0 0 80 85" style={{ pointerEvents: "none", overflow: "visible" }}><DoorPaths c={c} /></svg>;
+  }
+  const Icon = LUCIDE_ICON[type];
+  return <svg x={0} y={0} width={w} height={h} viewBox="0 0 24 24" style={{ pointerEvents: "none", overflow: "visible" }}><Icon size={24} color={c} strokeWidth={1.5} /></svg>;
+}
 type BayPlanogramSummary = { bay_id: string; bay_name: string; has_planogram: boolean; shelf_count: number };
 
 function labelColor(bg: string): string {
@@ -122,6 +145,17 @@ export default function OutletHub() {
                     </g>
                   );
                 })}
+                {(floorPlan.landmarks ?? []).map((lm) => (
+                  <g key={lm.id} transform={`translate(${lm.x},${lm.y}) rotate(${lm.rotation},${lm.w / 2},${lm.h / 2})`} style={{ pointerEvents: "none" }}>
+                    {lm.type !== "door" && (
+                      <rect x={0} y={0} width={lm.w} height={lm.h} fill="rgba(255,255,255,0.7)" stroke={NAVY} strokeWidth={3 * s} rx={4 * s} />
+                    )}
+                    <LandmarkIconSvg type={lm.type} w={lm.w} h={lm.h} color={NAVY} />
+                    {lm.label && (
+                      <text x={lm.w / 2} y={lm.h + 12 * s} textAnchor="middle" fontSize={10 * s} fill="#555" style={{ pointerEvents: "none", userSelect: "none" }}>{lm.label}</text>
+                    )}
+                  </g>
+                ))}
               </svg>
             ) : (
               <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
