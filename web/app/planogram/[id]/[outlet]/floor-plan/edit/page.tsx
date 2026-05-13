@@ -360,11 +360,27 @@ export default function FloorPlanEdit() {
     setIsDirty(true);
   }
 
-  function handlePropChange(field: "floor_w" | "floor_h" | "color", value: string | number) {
+  function handlePropChange(field: "floor_w" | "floor_h" | "floor_x" | "floor_y" | "color", value: string | number) {
     if (!selectedBayId) return;
     pushHistory(vertices, bays);
     setBays((prev) => prev.map((b) => b.id !== selectedBayId ? b : { ...b, [field]: value }));
     setIsDirty(true);
+  }
+
+  async function handleRenameBay(bayId: string, newName: string) {
+    const name = newName.trim();
+    if (!name) return;
+    // fetch current bay to preserve shelves, then PUT with new name
+    const res = await fetch(`/api/planogram/bays?outlet=${encodeURIComponent(outlet)}`);
+    const allBays = await res.json();
+    const current = allBays.find((b: { id: string }) => b.id === bayId);
+    if (!current) return;
+    await fetch(`/api/planogram/bays/${bayId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outlet: current.outlet, name, description: current.description, shelves: current.shelves }),
+    });
+    setBays((prev) => prev.map((b) => b.id === bayId ? { ...b, name } : b));
   }
 
   async function handleCreateBay() {
@@ -597,7 +613,15 @@ export default function FloorPlanEdit() {
         {/* properties panel */}
         {mode === "edit" && selectedBay && selectedBay.floor_x !== null && (
           <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12 }}>
-            <p style={{ fontSize: 11, color: "#888", margin: "0 0 10px", fontWeight: "bold" }}>{selectedBay.name}</p>
+            <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 10 }}>
+              Name
+              <input type="text"
+                key={`${selectedBayId}-name`}
+                defaultValue={selectedBay.name}
+                onBlur={(e) => handleRenameBay(selectedBay.id, e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
 
             <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
               Width (cm)
@@ -626,9 +650,25 @@ export default function FloorPlanEdit() {
                 style={{ display: "block", width: "100%", height: 32, marginTop: 3, padding: 2, border: "1px solid #ccc", borderRadius: 4, cursor: "pointer", boxSizing: "border-box" }} />
             </label>
 
-            <div style={{ fontSize: 10, color: "#aaa", marginBottom: 10 }}>
-              {selectedBay.floor_x !== null ? `${selectedBay.floor_x}, ${selectedBay.floor_y} cm` : ""}
-            </div>
+            <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 6 }}>
+              X (cm)
+              <input type="number" min={0} max={CANVAS_W} step={1}
+                key={`${selectedBayId}-x`}
+                defaultValue={selectedBay.floor_x ?? 0}
+                onBlur={(e) => handlePropChange("floor_x", clamp(Math.round(Number(e.target.value) || 0), 0, CANVAS_W))}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
+
+            <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 10 }}>
+              Y (cm)
+              <input type="number" min={0} max={CANVAS_H} step={1}
+                key={`${selectedBayId}-y`}
+                defaultValue={selectedBay.floor_y ?? 0}
+                onBlur={(e) => handlePropChange("floor_y", clamp(Math.round(Number(e.target.value) || 0), 0, CANVAS_H))}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
 
             <button onClick={handleRotate} style={{ ...btnStyle, width: "100%", marginBottom: 6, borderColor: "#f0a500", color: "#f0a500" }}>Rotate 90°</button>
             <button onClick={() => handleRemoveBay(selectedBay.id)} style={{ ...btnStyle, width: "100%", borderColor: "#e55", color: "#e55" }}>Remove</button>
