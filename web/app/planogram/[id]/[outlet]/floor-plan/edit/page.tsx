@@ -99,6 +99,11 @@ export default function FloorPlanEdit() {
   const [dragCoord, setDragCoord] = useState<{ x: number; y: number } | null>(null);
   const [histVersion, setHistVersion] = useState(0);
   const [gridSnap, setGridSnap] = useState(false);
+  const [showNewBay, setShowNewBay] = useState(false);
+  const [newBayName, setNewBayName] = useState("");
+  const [newBayDesc, setNewBayDesc] = useState("");
+  const [newBayShelves, setNewBayShelves] = useState<number[]>([7]);
+  const [isCreating, setIsCreating] = useState(false);
 
   // derived early so handlers can close over it
   const gridStep = ([1, 10, 100, 1000] as const).find((s) => s * zoom >= 8) ?? 1000;
@@ -361,6 +366,35 @@ export default function FloorPlanEdit() {
     setIsDirty(true);
   }
 
+  async function handleCreateBay() {
+    const name = newBayName.trim();
+    if (!name) return;
+    setIsCreating(true);
+    try {
+      const res = await fetch("/api/planogram/bays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          outlet,
+          name,
+          description: newBayDesc.trim(),
+          shelves: newBayShelves.map((slot_count, shelf_index) => ({ shelf_index, slot_count })),
+        }),
+      });
+      const created = await res.json();
+      const newBay: FloorBay = {
+        id: created.id, name: created.name,
+        floor_x: null, floor_y: null, floor_w: 50, floor_h: 100,
+        floor_rotation: 0, color: "#2E5FA3",
+      };
+      setBays((prev) => [...prev, newBay]);
+      setShowNewBay(false);
+      setNewBayName(""); setNewBayDesc(""); setNewBayShelves([7]);
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
   async function handleSave() {
     setIsSaving(true);
     try {
@@ -425,6 +459,7 @@ export default function FloorPlanEdit() {
           ✋ Hand
         </button>
         <button onClick={() => { pushHistory(vertices, bays); setVertices(DEFAULT_ROOM); setSelectedVertexIdx(null); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Reset room</button>
+        <button onClick={() => setShowNewBay(true)} style={{ ...btnStyle, background: NAVY, color: "#fff", border: "none" }}>+ New Bay</button>
         <span style={{ flex: 1 }} />
         <button onClick={fitToRoom} style={btnStyle}>Fit</button>
         <button onClick={() => setGridSnap((v) => !v)}
@@ -598,6 +633,53 @@ export default function FloorPlanEdit() {
           </div>
         )}
       </div>
+
+      {showNewBay && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowNewBay(false); }}>
+          <div style={{ background: "#fff", borderRadius: 8, padding: 24, width: 340, boxShadow: "0 8px 32px rgba(0,0,0,0.2)" }}>
+            <h2 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700 }}>New Bay</h2>
+
+            <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 10 }}>
+              Name
+              <input autoFocus value={newBayName} onChange={(e) => setNewBayName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreateBay()}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "4px 8px", fontSize: 13, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
+
+            <label style={{ display: "block", fontSize: 12, color: "#555", marginBottom: 14 }}>
+              Description
+              <input value={newBayDesc} onChange={(e) => setNewBayDesc(e.target.value)}
+                style={{ display: "block", width: "100%", marginTop: 3, padding: "4px 8px", fontSize: 13, border: "1px solid #ccc", borderRadius: 4, boxSizing: "border-box" }} />
+            </label>
+
+            <div style={{ fontSize: 12, color: "#555", marginBottom: 6 }}>Shelves</div>
+            {newBayShelves.map((slots, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: "#888", width: 52 }}>Shelf {i + 1}</span>
+                <input type="number" min={1} max={20} value={slots}
+                  onChange={(e) => setNewBayShelves((prev) => prev.map((v, j) => j === i ? Math.max(1, Number(e.target.value) || 1) : v))}
+                  style={{ width: 56, padding: "3px 6px", fontSize: 12, border: "1px solid #ccc", borderRadius: 4 }} />
+                <span style={{ fontSize: 11, color: "#aaa" }}>slots</span>
+                {newBayShelves.length > 1 && (
+                  <button onClick={() => setNewBayShelves((prev) => prev.filter((_, j) => j !== i))}
+                    style={{ marginLeft: "auto", fontSize: 11, color: "#e55", background: "none", border: "none", cursor: "pointer" }}>✕</button>
+                )}
+              </div>
+            ))}
+            <button onClick={() => setNewBayShelves((prev) => [...prev, 7])}
+              style={{ fontSize: 11, color: NAVY, background: "none", border: "none", cursor: "pointer", padding: 0, marginBottom: 18 }}>+ Add shelf</button>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowNewBay(false)} style={btnStyle}>Cancel</button>
+              <button onClick={handleCreateBay} disabled={!newBayName.trim() || isCreating}
+                style={{ ...btnStyle, background: NAVY, color: "#fff", border: "none", opacity: !newBayName.trim() ? 0.5 : 1 }}>
+                {isCreating ? "Creating…" : "Create"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa", display: "flex", justifyContent: "space-between" }}>
         <span>
