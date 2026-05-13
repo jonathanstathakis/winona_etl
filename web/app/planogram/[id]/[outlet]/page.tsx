@@ -58,8 +58,8 @@ export default function OutletHub() {
   const placedBays = floorPlan?.bays.filter((b) => b.floor_x !== null) ?? [];
   const polygonPoints = floorPlan?.vertices.map((v) => `${v.x},${v.y}`).join(" ") ?? "";
   const closed = (floorPlan?.vertices.length ?? 0) >= 3;
-  const { viewBox, vbW } = floorPlan
-    ? computeBounds(floorPlan.vertices, floorPlan.bays)
+  const { viewBox, vbW } = floorPlan && floorPlan.vertices.length >= 3
+    ? computeBounds(floorPlan.vertices, [], 60)
     : { viewBox: `0 0 ${CANVAS_W} ${CANVAS_H}`, vbW: CANVAS_W };
   const s = vbW / CANVAS_W;
 
