@@ -23,7 +23,7 @@ type FloorBay = {
 };
 
 type Pan = { x: number; y: number };
-type Mode = "place" | "room" | "pan";
+type Mode = "edit" | "pan";
 
 type BayDrag = {
   bayId: string;
@@ -88,7 +88,7 @@ export default function FloorPlanEdit() {
 
   const [vertices, setVertices] = useState<Vertex[]>([]);
   const [bays, setBays] = useState<FloorBay[]>([]);
-  const [mode, setMode] = useState<Mode>("place");
+  const [mode, setMode] = useState<Mode>("edit");
   const [selectedBayId, setSelectedBayId] = useState<string | null>(null);
   const [selectedVertexIdx, setSelectedVertexIdx] = useState<number | null>(null);
   const [bayListFilter, setBayListFilter] = useState<"all" | "placed" | "unplaced">("unplaced");
@@ -180,7 +180,7 @@ export default function FloorPlanEdit() {
 
   useEffect(() => {
     function onDelete(e: KeyboardEvent) {
-      if ((e.key === "Delete" || e.key === "Backspace") && mode === "room" && selectedVertexIdx !== null) {
+      if ((e.key === "Delete" || e.key === "Backspace") && mode === "edit" && selectedVertexIdx !== null) {
         e.preventDefault();
         if (vertices.length <= 3) return; // minimum triangle
         pushHistory(vertices, bays);
@@ -228,7 +228,7 @@ export default function FloorPlanEdit() {
   }
 
   function handleCanvasClick(e: React.MouseEvent<SVGSVGElement>) {
-    if (mode !== "room" || vertices.length < 3) return;
+    if (mode !== "edit" || vertices.length < 3) return;
     const target = e.target as SVGElement;
     if (target.getAttribute("data-vertex") || target.getAttribute("data-bay")) return;
     const { x, y } = worldCoords(e);
@@ -251,10 +251,11 @@ export default function FloorPlanEdit() {
   }
 
   function handleBayPointerDown(e: React.PointerEvent<SVGRectElement>, bay: FloorBay) {
-    if (mode !== "place" || bay.floor_x === null || bay.floor_y === null) return;
+    if (mode !== "edit" || bay.floor_x === null || bay.floor_y === null) return;
     e.stopPropagation();
     pushHistory(vertices, bays);
     setSelectedBayId(bay.id);
+    setSelectedVertexIdx(null);
     const { x, y } = worldCoords(e);
     bayDragRef.current = { bayId: bay.id, startWorldX: x, startWorldY: y, origFloorX: bay.floor_x, origFloorY: bay.floor_y };
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -268,7 +269,7 @@ export default function FloorPlanEdit() {
   }
 
   function handleBackgroundPointerDown(e: React.PointerEvent<SVGRectElement>) {
-    if (mode !== "place") return;
+    if (mode !== "edit") return;
     setSelectedBayId(null);
     startPan(e, e.target as Element);
   }
@@ -417,22 +418,13 @@ export default function FloorPlanEdit() {
         <button onClick={undo} disabled={!canUndo} style={btnStyle} title="Undo (⌘Z)">↩ Undo</button>
         <button onClick={redo} disabled={!canRedo} style={btnStyle} title="Redo (⌘⇧Z)">↪ Redo</button>
         <span style={{ width: 4 }} />
-        <button onClick={() => setMode("place")}
-          style={{ ...btnStyle, background: mode === "place" ? NAVY : "#eee", color: mode === "place" ? "#fff" : "#333", border: "none" }}>
-          Place Bays
-        </button>
-        <button onClick={() => { setMode("room"); setSelectedVertexIdx(null); }}
-          style={{ ...btnStyle, background: mode === "room" ? NAVY : "#eee", color: mode === "room" ? "#fff" : "#333", border: "none" }}>
-          Edit Room
-        </button>
-        <button onClick={() => setMode("pan")}
+        <button
+          onClick={() => { setMode(mode === "pan" ? "edit" : "pan"); setSelectedBayId(null); setSelectedVertexIdx(null); }}
           style={{ ...btnStyle, background: mode === "pan" ? NAVY : "#eee", color: mode === "pan" ? "#fff" : "#333", border: "none" }}
           title="Hand tool — drag to pan">
           ✋ Hand
         </button>
-        {mode === "room" && (
-          <button onClick={() => { pushHistory(vertices, bays); setVertices(DEFAULT_ROOM); setSelectedVertexIdx(null); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Reset room</button>
-        )}
+        <button onClick={() => { pushHistory(vertices, bays); setVertices(DEFAULT_ROOM); setSelectedVertexIdx(null); setIsDirty(true); }} style={{ ...btnStyle, borderColor: "#e55", color: "#e55" }}>Reset room</button>
         <span style={{ flex: 1 }} />
         <button onClick={fitToRoom} style={btnStyle}>Fit</button>
         <button onClick={() => setGridSnap((v) => !v)}
@@ -467,7 +459,7 @@ export default function FloorPlanEdit() {
 
               {/* background drag target (pan) */}
               <rect x={-CANVAS_W * 2} y={-CANVAS_H * 2} width={CANVAS_W * 5} height={CANVAS_H * 5} fill="transparent"
-                style={{ cursor: mode === "place" ? "grab" : "default" }}
+                style={{ cursor: mode === "edit" ? "grab" : "default" }}
                 onPointerDown={handleBackgroundPointerDown} />
 
               {/* adaptive grid lines */}
@@ -503,7 +495,7 @@ export default function FloorPlanEdit() {
                   <g key={b.id} data-bay="true">
                     <rect x={x} y={y} width={b.floor_w} height={b.floor_h} fill={b.color}
                       stroke={isSelected ? "#f0a500" : "rgba(0,0,0,0.25)"} strokeWidth={isSelected ? 3 / zoom : 1.5 / zoom} rx={3 / zoom}
-                      style={{ cursor: mode === "place" ? "grab" : "default" }}
+                      style={{ cursor: mode === "edit" ? "grab" : "default" }}
                       onPointerDown={(e) => handleBayPointerDown(e, b)} />
                     <text x={x + b.floor_w / 2} y={y + b.floor_h / 2} textAnchor="middle" dominantBaseline="middle"
                       fontSize={fontSize} fontWeight="bold" fill={labelColor(b.color)}
@@ -513,13 +505,13 @@ export default function FloorPlanEdit() {
               })}
 
               {/* vertex handles */}
-              {mode === "room" && vertices.map((v, i) => (
+              {mode === "edit" && vertices.map((v, i) => (
                 <circle key={i} cx={v.x} cy={v.y} r={7 / zoom}
                   fill={i === selectedVertexIdx ? "#e55" : i === 0 ? "#2a7" : "#fff"}
                   stroke={NAVY} strokeWidth={2 / zoom}
                   data-vertex="true" style={{ cursor: "move" }}
                   onPointerDown={(e) => handleVertexPointerDown(e, i)}
-                  onClick={(e) => { e.stopPropagation(); setSelectedVertexIdx(i); }} />
+                  onClick={(e) => { e.stopPropagation(); setSelectedVertexIdx(i); setSelectedBayId(null); }} />
               ))}
             </g>
           </svg>
@@ -530,8 +522,8 @@ export default function FloorPlanEdit() {
           </div>
         </div>
 
-        {/* bay list sidebar — right side, only in place mode */}
-        {mode === "place" && (
+        {/* bay list sidebar — right side, hidden in pan mode */}
+        {mode === "edit" && (
           <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12, overflowY: "auto" }}>
             <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
               {(["all", "placed", "unplaced"] as const).map((f) => (
@@ -543,7 +535,7 @@ export default function FloorPlanEdit() {
             </div>
             {bays.filter((b) => bayListFilter === "all" || (bayListFilter === "placed" ? b.floor_x !== null : b.floor_x === null)).map((b) => (
               <div key={b.id}
-                onClick={() => b.floor_x !== null && setSelectedBayId(b.id)}
+                onClick={() => { if (b.floor_x !== null) { setSelectedBayId(b.id); setSelectedVertexIdx(null); } }}
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #eee", cursor: b.floor_x !== null ? "pointer" : "default", background: b.id === selectedBayId ? "#f0f4ff" : "transparent" }}>
                 <span style={{ fontSize: 12, color: b.floor_x !== null ? "#333" : "#888" }}>{b.name}</span>
                 {b.floor_x === null && (
@@ -559,7 +551,7 @@ export default function FloorPlanEdit() {
         )}
 
         {/* properties panel */}
-        {mode === "place" && selectedBay && selectedBay.floor_x !== null && (
+        {mode === "edit" && selectedBay && selectedBay.floor_x !== null && (
           <div style={{ width: 160, flexShrink: 0, borderLeft: "1px solid #ccc", paddingLeft: 12 }}>
             <p style={{ fontSize: 11, color: "#888", margin: "0 0 10px", fontWeight: "bold" }}>{selectedBay.name}</p>
 
@@ -602,11 +594,10 @@ export default function FloorPlanEdit() {
 
       <div style={{ marginTop: 8, fontSize: 11, color: "#aaa", display: "flex", justifyContent: "space-between" }}>
         <span>
-          {mode === "room" && selectedVertexIdx !== null && "Vertex selected — drag (Shift = axis lock) · Delete to remove (min 3) · Esc to deselect."}
-          {mode === "room" && selectedVertexIdx === null && "Click a vertex to select it · drag (Shift = axis lock) · click an edge to insert a node."}
-          {mode === "pan" && "Drag anywhere to pan · scroll to zoom · switch to Place Bays to move bays."}
-          {mode === "place" && !selectedBay && "Scroll to zoom · drag background to pan · click + to place a bay · click a bay to select it."}
-          {mode === "place" && selectedBay && "Drag to reposition. Adjust size and colour in the panel."}
+          {mode === "edit" && selectedVertexIdx !== null && "Vertex selected — drag (Shift = axis lock) · Delete to remove (min 3) · Esc to deselect."}
+          {mode === "edit" && selectedBay && selectedVertexIdx === null && "Bay selected — drag to reposition · adjust size and colour in the panel."}
+          {mode === "edit" && !selectedBay && selectedVertexIdx === null && "Click a vertex to select it · click an edge to insert · drag bays to reposition · drag background to pan."}
+          {mode === "pan" && "Drag anywhere to pan · scroll to zoom."}
         </span>
         {dragCoord && (
           <span style={{ color: "#555", fontVariantNumeric: "tabular-nums", flexShrink: 0, marginLeft: 16 }}>
