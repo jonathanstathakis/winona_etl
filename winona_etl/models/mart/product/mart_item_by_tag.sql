@@ -22,6 +22,10 @@ item as (
 tag_joined as (
     select
         item.*,
+        coalesce(item.inventory_winona_avalon, 0)
+        + coalesce(item.inventory_winona_manly, 0)
+        + coalesce(item.inventory_winona_rozelle, 0)
+        + coalesce(item.inventory_winona_warehouse, 0) as inv_total,
         tag
     from
         tag_to_item

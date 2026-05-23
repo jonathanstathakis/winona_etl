@@ -430,6 +430,7 @@ export default function TransferPage() {
       ...(dstCol
         ? [{ field: dstCol, headerName: `${destVenue} Stock`, width: 130, type: "numericColumn" as const }]
         : []),
+      { field: "inv_total", headerName: "Total Stock", width: 120, type: "numericColumn" as const },
       ...(dstRestock
         ? [{ field: dstRestock, headerName: `${destVenue} Restock`, width: 130, type: "numericColumn" as const }]
         : []),

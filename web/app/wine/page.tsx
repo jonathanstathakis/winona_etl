@@ -10,6 +10,7 @@ const COLUMNS: GridColDef[] = [
   { field: "brand_name", headerName: "Brand", width: 180 },
   { field: "retail_price", headerName: "Retail", width: 100, type: "number" },
   { field: "supply_price", headerName: "Supply", width: 100, type: "number" },
+  { field: "inv_total", headerName: "Total Stock", width: 110, type: "number" },
   { field: "tags", headerName: "Tags", width: 300 },
 ];
 
@@ -21,6 +22,7 @@ interface WineItem {
   brand_name: string;
   retail_price: number;
   supply_price: number;
+  inv_total: number;
   tags: string;
 }
 
