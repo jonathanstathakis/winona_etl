@@ -1,10 +1,11 @@
 "use client";
-import { Box, Card, CardActionArea, CardContent, Stack, Typography } from "@mui/material";
+import { useState } from "react";
+import { Alert, Box, Button, Card, CardActionArea, CardContent, CircularProgress, Divider, Stack, Typography } from "@mui/material";
 import InventoryIcon from "@mui/icons-material/Inventory";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import SyncIcon from "@mui/icons-material/Sync";
 import Link from "next/link";
 
-/** Navigation entries for each upload sub-page, each with a route, icon, label, and description. */
 const UPLOADS = [
   {
     href: "/upload/product_catalog",
@@ -20,8 +21,28 @@ const UPLOADS = [
   },
 ];
 
-/** Landing page for the Upload section, showing navigation cards for each upload type. */
 export default function UploadIndexPage() {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleRunDbt = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      const r = await fetch("/api/loader/run-dbt", { method: "POST" });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        setResult({ ok: false, message: body.detail ?? `HTTP ${r.status}` });
+      } else {
+        setResult({ ok: true, message: "Pipeline ran successfully." });
+      }
+    } catch (e) {
+      setResult({ ok: false, message: String(e) });
+    } finally {
+      setRunning(false);
+    }
+  };
+
   return (
     <>
       <Typography variant="h5" gutterBottom>Upload</Typography>
@@ -37,6 +58,28 @@ export default function UploadIndexPage() {
             </CardActionArea>
           </Card>
         ))}
+      </Stack>
+
+      <Divider sx={{ my: 3 }} />
+
+      <Typography variant="subtitle1" fontWeight={600} gutterBottom>Run pipeline</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Re-run the dbt transformation pipeline against existing data — use this to reflect model changes without uploading new files.
+      </Typography>
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Button
+          variant="outlined"
+          startIcon={running ? <CircularProgress size={16} /> : <SyncIcon />}
+          onClick={handleRunDbt}
+          disabled={running}
+        >
+          {running ? "Running…" : "Run pipeline"}
+        </Button>
+        {result && (
+          <Alert severity={result.ok ? "success" : "error"} sx={{ py: 0 }}>
+            {result.message}
+          </Alert>
+        )}
       </Stack>
     </>
   );
