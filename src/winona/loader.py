@@ -9,17 +9,16 @@ from .db_utils import attach_target_db, generate_connection
 from .config import get_conn_str
 
 _DBT_DIR = Path(__file__).parents[2] / "winona_etl"
-_DBT_BIN = _DBT_DIR / ".venv" / "bin" / "dbt"
 
 
 def _run_dbt(select: list[str] | None = None):
     env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
     print("running dbt deps..")
-    subprocess.run([str(_DBT_BIN), "deps", "--profiles-dir", "."], cwd=_DBT_DIR, env=env, check=True)
+    subprocess.run(["uv", "run", "dbt", "deps", "--profiles-dir", "."], cwd=_DBT_DIR, env=env, check=True)
     print("running dbt seed..")
-    subprocess.run([str(_DBT_BIN), "seed", "--profiles-dir", "."], cwd=_DBT_DIR, env=env, check=True)
+    subprocess.run(["uv", "run", "dbt", "seed", "--profiles-dir", "."], cwd=_DBT_DIR, env=env, check=True)
     print("running dbt run..")
-    cmd = [str(_DBT_BIN), "run", "--profiles-dir", "."]
+    cmd = ["uv", "run", "dbt", "run", "--profiles-dir", "."]
     if select:
         cmd += ["--select"] + select
     subprocess.run(cmd, cwd=_DBT_DIR, env=env, check=True)
