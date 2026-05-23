@@ -97,6 +97,7 @@ export default function SalesHistoryUploadPage() {
   const [uploadPct, setUploadPct] = useState(0);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [deduplicate, setDeduplicate] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     setCoverageLoading(true);
@@ -228,23 +229,49 @@ export default function SalesHistoryUploadPage() {
           )}
         </Box>
 
-        <Button
+        <Box
           component="label"
-          variant="outlined"
-          startIcon={<CloudUploadIcon />}
-          disabled={step === "committing"}
+          onDragOver={(e) => { e.preventDefault(); if (step !== "committing") setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            if (step === "committing") return;
+            const f = e.dataTransfer.files?.[0];
+            if (f) handleFileChange(f);
+          }}
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 1,
+            p: 3,
+            border: 2,
+            borderStyle: "dashed",
+            borderColor: isDragging ? "primary.main" : "divider",
+            borderRadius: 1,
+            bgcolor: isDragging ? "action.hover" : "transparent",
+            cursor: step === "committing" ? "not-allowed" : "pointer",
+            transition: "border-color 0.15s, background-color 0.15s",
+            opacity: step === "committing" ? 0.5 : 1,
+          }}
         >
-          {file ? file.name : "Choose CSV"}
+          <CloudUploadIcon color={isDragging ? "primary" : "action"} fontSize="large" />
+          <Typography variant="body2" color="text.secondary" textAlign="center">
+            {file ? file.name : "Drop a CSV here, or click to browse"}
+          </Typography>
           <input
             type="file"
             accept=".csv"
             hidden
+            disabled={step === "committing"}
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) handleFileChange(f);
             }}
           />
-        </Button>
+        </Box>
 
         {previewError && <Alert severity="error">{previewError}</Alert>}
 
