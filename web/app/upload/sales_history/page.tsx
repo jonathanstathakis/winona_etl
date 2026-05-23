@@ -4,12 +4,10 @@ import {
   Alert,
   Box,
   Button,
-  Checkbox,
   Chip,
   CircularProgress,
   Divider,
   FormControl,
-  FormControlLabel,
   InputLabel,
   LinearProgress,
   MenuItem,
@@ -96,7 +94,6 @@ export default function SalesHistoryUploadPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState(0);
   const [commitError, setCommitError] = useState<string | null>(null);
-  const [deduplicate, setDeduplicate] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -125,7 +122,6 @@ export default function SalesHistoryUploadPage() {
     setPreview(null);
     setPreviewError(null);
     setCommitError(null);
-    setDeduplicate(false);
     setStep("previewing");
 
     const form = new FormData();
@@ -154,7 +150,7 @@ export default function SalesHistoryUploadPage() {
     const form = new FormData();
     form.append("file", file);
     form.append("outlet", outlet);
-    if (deduplicate) form.append("deduplicate", "true");
+    form.append("deduplicate", "true");
 
     try {
       const res = await uploadWithProgress("/api/loader/sale-history", form, (pct) => {
@@ -178,7 +174,6 @@ export default function SalesHistoryUploadPage() {
     setPreview(null);
     setPreviewError(null);
     setCommitError(null);
-    setDeduplicate(false);
     setStep("idle");
   }
 
@@ -191,8 +186,8 @@ export default function SalesHistoryUploadPage() {
     if (file) handleFileChange(file);
   }
 
-  const canConfirm = preview && (preview.duplicate_count === 0 || deduplicate);
-  const netRows = preview ? preview.row_count - (deduplicate ? preview.duplicate_rows : 0) : 0;
+  const canConfirm = !!preview;
+  const netRows = preview ? preview.row_count - preview.duplicate_rows : 0;
 
   return (
     <>
@@ -305,26 +300,10 @@ export default function SalesHistoryUploadPage() {
               )}
 
               {preview.duplicate_count > 0 ? (
-                <Stack spacing={1}>
-                  <Alert severity="warning">
-                    {preview.duplicate_count} duplicate timestamp{preview.duplicate_count !== 1 ? "s" : ""} detected
-                    ({preview.duplicate_rows} row{preview.duplicate_rows !== 1 ? "s" : ""}).
-                  </Alert>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={deduplicate}
-                        onChange={(e) => setDeduplicate(e.target.checked)}
-                      />
-                    }
-                    label={
-                      <Typography variant="body2">
-                        Remove duplicates before uploading
-                        {deduplicate && ` — ${netRows} rows will be inserted`}
-                      </Typography>
-                    }
-                  />
-                </Stack>
+                <Alert severity="info">
+                  {preview.duplicate_rows} duplicate row{preview.duplicate_rows !== 1 ? "s" : ""} will be skipped
+                  — {netRows} new row{netRows !== 1 ? "s" : ""} will be inserted.
+                </Alert>
               ) : (
                 <Alert severity="success" icon={false}>No overlaps detected.</Alert>
               )}
@@ -358,7 +337,7 @@ export default function SalesHistoryUploadPage() {
                 <Typography variant="subtitle2">Upload successful</Typography>
               </Stack>
               <Stack direction="row" spacing={1} flexWrap="wrap">
-                <Chip size="small" color="success" label={`${deduplicate ? netRows : preview.row_count} rows added`} />
+                <Chip size="small" color="success" label={`${netRows} rows added`} />
                 <Chip size="small" label={`From: ${fmtDt(preview.file_min)}`} variant="outlined" />
                 <Chip size="small" label={`To: ${fmtDt(preview.file_max)}`} variant="outlined" />
               </Stack>
