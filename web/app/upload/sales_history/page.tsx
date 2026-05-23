@@ -96,13 +96,13 @@ export default function SalesHistoryUploadPage() {
   const [commitError, setCommitError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  useEffect(() => {
+  function fetchCoverage(outletName: string) {
     setCoverageLoading(true);
     fetch("/api/mart/data-health")
       .then((r) => r.json())
       .then((data) => {
         const row = data.sale_history_by_outlet?.find(
-          (r: { outlet: string }) => r.outlet === outlet,
+          (r: { outlet: string }) => r.outlet === outletName,
         );
         setCoverage(row
           ? { existing_min: row.earliest_sale, existing_max: row.latest_sale }
@@ -111,7 +111,9 @@ export default function SalesHistoryUploadPage() {
       })
       .catch(() => setCoverage(null))
       .finally(() => setCoverageLoading(false));
-  }, [outlet]);
+  }
+
+  useEffect(() => { fetchCoverage(outlet); }, [outlet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Sends the selected file to the preview endpoint and advances the workflow to `preview_ready`.
@@ -160,6 +162,7 @@ export default function SalesHistoryUploadPage() {
       try { data = JSON.parse(res.text); } catch { /* plain-text */ }
       if (!res.ok) throw new Error(data.detail ?? res.text.slice(0, 300) ?? `HTTP ${res.status}`);
       setStep("success");
+      fetchCoverage(outlet);
     } catch (err) {
       setCommitError((err as Error).message);
       setStep("preview_ready");
