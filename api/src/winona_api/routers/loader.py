@@ -15,6 +15,16 @@ router = APIRouter(prefix="/api/loader", tags=["loader"])
 OUTLET_NAMES = ["rozelle", "avalon", "manly"]
 
 
+@router.post("/run-dbt")
+async def run_dbt():
+    try:
+        _run_dbt()
+    except Exception as e:
+        log.exception("dbt run error")
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "ok"}
+
+
 @router.post("/product-export")
 async def product_export(file: UploadFile = File(...)):
     tmp_path = None
@@ -63,26 +73,26 @@ async def sale_history_preview(file: UploadFile = File(...), outlet: str = Form(
 
             dup_row = conn.execute(f"""
                 SELECT COUNT(*) FROM (
-                    SELECT DISTINCT date
+                    SELECT DISTINCT receipt_number
                     FROM read_csv('{tmp_path}', normalize_names=true)
                     WHERE line_type = 'Sale'
                 ) f
-                WHERE f.date IN (
-                    SELECT DISTINCT date
+                WHERE f.receipt_number IN (
+                    SELECT DISTINCT receipt_number
                     FROM wh.raw.sale_history_dump
-                    WHERE outlet = '{outlet}'
+                    WHERE outlet = '{outlet}' AND line_type = 'Sale'
                 )
             """).fetchone()
             duplicate_count = int(dup_row[0]) if dup_row else 0
 
-            # Count actual rows (all line types) that will be filtered by dedup
+            # All rows (all line types) whose receipt is already in the warehouse
             dup_rows_row = conn.execute(f"""
                 SELECT COUNT(*)
                 FROM read_csv('{tmp_path}', normalize_names=true)
-                WHERE date IN (
-                    SELECT DISTINCT date
+                WHERE receipt_number IN (
+                    SELECT DISTINCT receipt_number
                     FROM wh.raw.sale_history_dump
-                    WHERE outlet = '{outlet}'
+                    WHERE outlet = '{outlet}' AND line_type = 'Sale'
                 )
             """).fetchone()
             duplicate_rows = int(dup_rows_row[0]) if dup_rows_row else 0
@@ -138,10 +148,10 @@ async def sale_history(
                     COPY (
                         SELECT *
                         FROM read_csv('{tmp_path}', normalize_names=true)
-                        WHERE date NOT IN (
-                            SELECT DISTINCT date
+                        WHERE receipt_number NOT IN (
+                            SELECT DISTINCT receipt_number
                             FROM wh.raw.sale_history_dump
-                            WHERE outlet = '{outlet}'
+                            WHERE outlet = '{outlet}' AND line_type = 'Sale'
                         )
                     ) TO '{filtered_path}' (HEADER, DELIMITER ',')
                 """)
