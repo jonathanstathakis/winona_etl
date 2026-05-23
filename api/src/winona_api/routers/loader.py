@@ -73,7 +73,7 @@ async def sale_history_preview(file: UploadFile = File(...), outlet: str = Form(
 
             dup_row = conn.execute(f"""
                 SELECT COUNT(*) FROM (
-                    SELECT DISTINCT receipt_number::VARCHAR
+                    SELECT DISTINCT receipt_number::VARCHAR AS receipt_number
                     FROM read_csv('{tmp_path}', normalize_names=true)
                     WHERE line_type = 'Sale'
                 ) f
