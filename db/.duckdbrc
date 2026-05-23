@@ -1,0 +1,1 @@
+ATTACH 'postgresql://winona:winona@localhost:5432/winona_dw' AS wh (TYPE postgres);

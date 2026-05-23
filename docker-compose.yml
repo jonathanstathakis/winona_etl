@@ -1,12 +1,13 @@
 services:
   db:
-    image: postgres:16
+    build: ./db
     environment:
       POSTGRES_USER: winona
       POSTGRES_PASSWORD: ${WINONA_DB_PASSWORD:-winona}
       POSTGRES_DB: winona_dw
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db/.duckdbrc:/root/.duckdbrc
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U winona -d winona_dw"]
       interval: 5s
