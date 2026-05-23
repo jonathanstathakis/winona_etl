@@ -24,6 +24,8 @@ services:
       WINONA_DB_PASSWORD: ${WINONA_DB_PASSWORD:-winona}
     ports:
       - "8000:8000"
+    volumes:
+      - ./winona_etl:/app/winona_etl
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\""]
       interval: 5s
