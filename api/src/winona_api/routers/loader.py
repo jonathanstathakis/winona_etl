@@ -73,7 +73,7 @@ async def sale_history_preview(file: UploadFile = File(...), outlet: str = Form(
 
             dup_row = conn.execute(f"""
                 SELECT COUNT(*) FROM (
-                    SELECT DISTINCT receipt_number
+                    SELECT DISTINCT receipt_number::VARCHAR
                     FROM read_csv('{tmp_path}', normalize_names=true)
                     WHERE line_type = 'Sale'
                 ) f
@@ -89,7 +89,7 @@ async def sale_history_preview(file: UploadFile = File(...), outlet: str = Form(
             dup_rows_row = conn.execute(f"""
                 SELECT COUNT(*)
                 FROM read_csv('{tmp_path}', normalize_names=true)
-                WHERE receipt_number IN (
+                WHERE receipt_number::VARCHAR IN (
                     SELECT DISTINCT receipt_number
                     FROM wh.raw.sale_history_dump
                     WHERE outlet = '{outlet}' AND line_type = 'Sale'
@@ -148,7 +148,7 @@ async def sale_history(
                     COPY (
                         SELECT *
                         FROM read_csv('{tmp_path}', normalize_names=true)
-                        WHERE receipt_number NOT IN (
+                        WHERE receipt_number::VARCHAR NOT IN (
                             SELECT DISTINCT receipt_number
                             FROM wh.raw.sale_history_dump
                             WHERE outlet = '{outlet}' AND line_type = 'Sale'
