@@ -1,0 +1,12 @@
+
+    
+    
+    truncate table "winona_dw"."public"."seed_price_tier";
+    -- dbt seed --
+    
+          insert into "winona_dw"."public"."seed_price_tier" ("tier_name") values
+          (%s),(%s),(%s),(%s)
+      
+
+;
+  

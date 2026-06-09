@@ -1,0 +1,30 @@
+{
+  "name": "Winona ETL",
+  "dockerComposeFile": "../../docker-compose.yml",
+  "service": "etl",
+  "workspaceFolder": "/workspaces/etl",
+  "postCreateCommand": "dbt deps --profiles-dir .",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "innoverio.vscode-dbt-power-user",
+        "ms-python.python",
+        "anthropics.claude-dev",
+        "Anthropic.claude-code"
+      ],
+      "settings": {
+        "dbt.profilesPath": "/workspaces/winona_etl/etl",
+        "dbt.dbtPythonPathOverride": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "dbt.queryLimit": 10
+      }
+    }
+  },
+  // for persisting claude authorization betwewen rebuilds.
+  // Possible security risk?
+  // Also probably should only have in a dev container rather than the 
+  // actual ETL container.
+  "mounts": [
+  "source=${localEnv:HOME}/.claude,target=/root/.claude,type=bind,consistency=cached"
+]
+}

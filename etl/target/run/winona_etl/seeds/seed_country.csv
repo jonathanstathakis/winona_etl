@@ -1,0 +1,12 @@
+
+    
+    
+    truncate table "winona_dw"."public"."seed_country";
+    -- dbt seed --
+    
+          insert into "winona_dw"."public"."seed_country" ("country_name") values
+          (%s),(%s),(%s),(%s),(%s),(%s),(%s),(%s),(%s),(%s),(%s),(%s)
+      
+
+;
+  

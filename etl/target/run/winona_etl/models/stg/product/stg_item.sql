@@ -1,0 +1,55 @@
+
+  create view "winona_dw"."stg"."stg_item__dbt_tmp"
+    
+    
+  as (
+    with unique_item as (
+    select
+        "pk",
+  "id",
+  "handle",
+  "sku",
+  "name",
+  "description",
+  "product_category",
+  "variant_option_one_name",
+  "variant_option_one_value",
+  "variant_option_two_name",
+  "variant_option_two_value",
+  "variant_option_three_name",
+  "variant_option_three_value",
+  "supply_price",
+  "retail_price",
+  "loyalty_value",
+  "loyalty_value_default",
+  "tax_name",
+  "tax_value",
+  "account_code",
+  "account_code_purchase",
+  "brand_name",
+  "supplier_name",
+  "supplier_code",
+  "active",
+  "track_inventory",
+  "inventory_winona_avalon",
+  "reorder_point_winona_avalon",
+  "restock_level_winona_avalon",
+  "inventory_winona_manly",
+  "reorder_point_winona_manly",
+  "restock_level_winona_manly",
+  "inventory_winona_rozelle",
+  "reorder_point_winona_rozelle",
+  "restock_level_winona_rozelle",
+  "inventory_winona_warehouse",
+  "reorder_point_winona_warehouse",
+  "restock_level_winona_warehouse",
+  "export_timestamp",
+  "tags"
+    from
+        "winona_dw"."stg"."stg_unique_item"
+)
+select
+    *
+from
+    unique_item
+  );

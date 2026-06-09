@@ -5,6 +5,7 @@ description = "CLI for ingesting Lightspeed product catalog exports and sales hi
 requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.4.4",
+    "httpx>=0.27.0",
     "python-dotenv>=1.0.0",
     "pandas>=3.0.1",
     "pathlib>=1.0.1",

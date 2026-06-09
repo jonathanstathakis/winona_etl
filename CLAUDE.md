@@ -13,7 +13,14 @@ Three outlets: **rozelle**, **avalon**, **manly**
 ```
 winona_data_wh/
 ├── src/winona/          ← CLI package (typer). Entry: winona.cli:app
-├── winona_etl/          ← dbt project (postgres adapter)
+├── etl/                 ← dbt project + ETL service
+│   ├── models/          ← dbt SQL models (raw → stg → mart)
+│   ├── seeds/           ← dbt seed CSV files
+│   ├── macros/          ← dbt macros
+│   ├── profiles.yml     ← dbt connection profiles (reads WINONA_DB_HOST)
+│   ├── dbt_project.yml
+│   ├── server.py        ← FastAPI ETL server (POST /run, GET /health)
+│   └── Dockerfile       ← builds the etl service image
 ├── api/                 ← FastAPI backend (uv project)
 │   └── src/winona_api/
 │       ├── main.py      ← FastAPI app + CORS
@@ -28,6 +35,8 @@ winona_data_wh/
 │       ├── transfer/    ← Transfer order generator
 │       ├── wine/        ← Wine-specific view
 │       └── upload/      ← CSV upload form
+├── .devcontainer/
+│   └── devcontainer.json  ← VS Code Dev Container config (targets etl service)
 └── eda/                 ← marimo EDA notebooks
 ```
 
@@ -39,12 +48,15 @@ winona_data_wh/
 # First time: copy .env.example to .env (edit WINONA_DB_PASSWORD if needed)
 cp .env.example .env
 
-# Start everything (Postgres + API + web)
+# Start everything (Postgres + ETL + API + web)
 docker compose up --build
 
-# Web → http://localhost:3000
-# API → http://localhost:8000/docs
+# Web  → http://localhost:3000
+# API  → http://localhost:8000/docs
+# ETL  → http://localhost:8001/docs
 ```
+
+Four services start in dependency order: `db` → `etl` → `api` → `web`.
 
 Next.js proxies `/api/*` → `http://localhost:8000/api/*` via `next.config.ts` rewrites.
 
@@ -66,13 +78,14 @@ uv run winona --help
 
 ---
 
-## dbt project (`winona_etl/`)
+## dbt project (`etl/`)
 
+The dbt project lives in `etl/` and runs inside the `etl` Docker container, which has direct access to the `db` service on the Docker network. See the **ETL container** section below for development workflow.
+
+To trigger a full dbt run manually (e.g. from the API entrypoint or for testing):
 ```bash
-cd winona_etl
-uv run dbt run                          # full run
-uv run dbt run -s mart_item_curr        # single model
-uv run dbt run -s path:models/stg/product  # by path
+docker exec winona_etl-etl-1 sh -c "cd /workspaces/etl && dbt run --profiles-dir ."
+docker exec winona_etl-etl-1 sh -c "cd /workspaces/etl && dbt run --profiles-dir . --select mart_item_curr"
 ```
 
 Key models:
@@ -82,6 +95,45 @@ Key models:
 - `mart_item_by_tag` — denormalised items × tags
 - `mart_wine_curr` — wine-specific subset
 - `mart_sale` — sale history mart
+
+---
+
+## ETL container
+
+### Why dbt runs in a container
+
+dbt connects to Postgres directly using the postgres adapter — it's not proxied through DuckDB like the API is. This means it needs a hostname that resolves to the database.
+
+Inside Docker, the database is reachable at `db` (the compose service name). From the host machine, it's at `localhost:5432` via port-forwarding. These two values can't both be the default in `profiles.yml` at the same time.
+
+Rather than managing this split with environment variable tricks, the dbt project runs entirely inside the `etl` container where `db` always resolves correctly. The API triggers dbt runs by calling `POST http://etl:8001/run` (see `src/winona/loader.py:_run_dbt()`) instead of running dbt as a subprocess.
+
+The ETL service (`etl/server.py`) is a small FastAPI app:
+- `GET  /health` — liveness check (used by compose healthcheck)
+- `POST /run`    — runs `dbt seed` + `dbt run`; accepts optional `select` list to target specific models
+
+On startup the server runs `dbt deps` to ensure packages are installed.
+
+### Developing dbt models with VS Code Dev Containers
+
+The `etl` container is also a VS Code Dev Container. Opening it gives you dbt Power User with a live connection to the database — intellisense, lineage, query preview, all working inside the container where `db` resolves natively.
+
+**First time setup:**
+1. Start the stack: `docker compose up --build`
+2. In VS Code: Command Palette → **Dev Containers: Reopen in Container**
+3. VS Code connects to the running `etl` container and installs extensions
+4. Run `dbt compile --profiles-dir .` in the container terminal to generate `target/manifest.json`
+
+**Subsequent opens:**
+- Command Palette → **Dev Containers: Reopen in Container**
+- If dbt Power User shows no intellisense or buttons do nothing, run `dbt compile --profiles-dir .` — the manifest may be stale
+
+**Running dbt manually in the container terminal:**
+```bash
+dbt run --profiles-dir .
+dbt run --profiles-dir . --select mart_item_curr
+dbt test --profiles-dir .
+```
 
 ---
 

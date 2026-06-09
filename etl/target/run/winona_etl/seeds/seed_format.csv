@@ -1,0 +1,12 @@
+
+    
+    
+    truncate table "winona_dw"."public"."seed_format";
+    -- dbt seed --
+    
+          insert into "winona_dw"."public"."seed_format" ("format_name") values
+          (%s),(%s),(%s)
+      
+
+;
+  

@@ -1,0 +1,21 @@
+
+  create view "winona_dw"."mart"."mart_product_export_counts_per_export__dbt_tmp"
+    
+    
+  as (
+    with stg_item as (
+    select
+        *
+    from
+        "winona_dw"."stg"."stg_item"
+)
+select
+    to_timestamp(export_timestamp) as export_timestamp,
+    count(*) as items_per_export
+from
+    stg_item
+group by
+    export_timestamp
+order by
+    export_timestamp
+  );

@@ -1,0 +1,27 @@
+with raw_sale_line as (
+    SELECT
+        *
+    from
+        "winona_dw"."raw"."raw_sale_line"
+)
+SELECT
+    "sale_history_line_id",
+  "insert_index",
+  "export_timestamp",
+  "export_filename",
+  "outlet",
+  "date",
+  "receipt_number",
+  "line_type",
+  "quantity",
+  "subtotal",
+  "sales_tax",
+  "discount",
+  "loyalty",
+  "total",
+  "details",
+  "_user",
+  "sku",
+  "accountcodesale"
+FROM
+    raw_sale_line

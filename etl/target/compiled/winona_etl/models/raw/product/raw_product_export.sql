@@ -1,0 +1,1 @@
+select * from "winona_dw"."raw"."product_export_dump"

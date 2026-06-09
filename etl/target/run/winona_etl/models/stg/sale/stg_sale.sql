@@ -1,0 +1,38 @@
+
+  create view "winona_dw"."stg"."stg_sale__dbt_tmp"
+    
+    
+  as (
+    WITH raw_sale AS (
+    SELECT
+        *
+    FROM
+        "winona_dw"."raw"."raw_sale"
+)
+SELECT
+    "sale_history_line_id",
+  "insert_index",
+  "export_timestamp",
+  "export_filename",
+  "outlet",
+  "date",
+  "receipt_number",
+  "line_type",
+  "customer_code",
+  "customer_name",
+  "note",
+  "quantity",
+  "subtotal",
+  "sales_tax",
+  "discount",
+  "loyalty",
+  "total",
+  "details",
+  "register",
+  "_user",
+  "status",
+  "state",
+  "attributes"
+FROM
+    raw_sale
+  );

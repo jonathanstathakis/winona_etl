@@ -5,6 +5,8 @@ services:
       POSTGRES_USER: winona
       POSTGRES_PASSWORD: ${WINONA_DB_PASSWORD:-winona}
       POSTGRES_DB: winona_dw
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/.duckdbrc:/root/.duckdbrc
@@ -14,18 +16,39 @@ services:
       timeout: 5s
       retries: 10
 
+  etl:
+    build: ./etl
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WINONA_DB_HOST: db
+      WINONA_DB_PASSWORD: ${WINONA_DB_PASSWORD:-winona}
+    volumes:
+      - .:/workspaces
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
   api:
     build: .
     depends_on:
       db:
         condition: service_healthy
+      etl:
+        condition: service_healthy
     environment:
       WINONA_DATABASE_URL: postgresql://winona:${WINONA_DB_PASSWORD:-winona}@db:5432/winona_dw
       WINONA_DB_PASSWORD: ${WINONA_DB_PASSWORD:-winona}
+      WINONA_DB_HOST: db
+      ETL_URL: http://etl:8001
     ports:
       - "8000:8000"
-    volumes:
-      - ./winona_etl:/app/winona_etl
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')\""]
       interval: 5s
