@@ -4,22 +4,6 @@ This project is an in-house tool to manage and automate as many tasks as possibl
 
 ## Long Term Goals
 
-- [ ] data warehousing:
-    - [ ] sales history
-    - [ ] product catalog
-    - [ ] data health dashboard
-- [ ] product model categorization:
-    - [ ] manual
-    - [ ] automated (AI)
-- [ ] portfolio/price list analysis:
-    - [ ] parsing portfolios
-    - [ ] analysis: what does that look like
-- [ ] transfer generator: bulk transfers from manly to Rozelle
-- [ ] notebooks: whats the best flow?
-- [ ] events scheduling
-- [ ] buying budget
-- [ ] reporting:
-    - [ ] sales
 
 Monorepo for ingesting and transforming Lightspeed exports for Winona Wine.
 

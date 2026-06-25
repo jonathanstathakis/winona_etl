@@ -65,3 +65,12 @@ def data_health():
         "product_exports": product_exports,
         "sale_history_by_outlet": sale_history,
     }
+
+@router.get("/item-detail")
+def item_detail(item_id: str):
+    conn: duckdb.DuckDBPYConnection = get_conn()
+
+    query = "select * from wh.mart.mart_item_curr where id = ?"
+    rel = conn.execute(query, [item_id])
+    cols = [desc[0] for desc in rel.description]
+    return dict(zip(cols, rel.fetchone()))
